@@ -59,7 +59,7 @@
         
         .weather-result, .forecast-container {
             margin-top: 20px;
-            display: none; /* Disembunyikan saat awal */
+            display: none; 
             padding-top: 20px;
             border-top: 1px solid #eee;
         }
@@ -75,7 +75,6 @@
             text-transform: capitalize;
         }
         
-        /* Desain untuk ramalan per jam */
         .forecast-title {
             font-size: 16px;
             color: #333;
@@ -108,8 +107,14 @@
         .error, .loading {
             margin-top: 15px;
             display: none;
+            padding: 10px;
+            border-radius: 8px;
         }
-        .error { color: red; }
+        .error { 
+            background-color: #ffe6e6;
+            color: #d9534f; 
+            font-size: 14px;
+        }
         .loading { color: #555; font-style: italic; }
     </style>
 </head>
@@ -156,12 +161,11 @@
             forecastContainer.style.display = 'none';
             errorMessage.style.display = 'none';
             loadingMessage.style.display = 'block';
-            forecastList.innerHTML = ''; // Bersihkan list sebelumnya
+            forecastList.innerHTML = ''; 
         }
 
         async function fetchWeatherData(urlCurrent, urlForecast) {
             try {
-                // 1. Ambil Cuaca Saat Ini
                 const resCurrent = await fetch(urlCurrent);
                 const dataCurrent = await resCurrent.json();
                 
@@ -169,26 +173,21 @@
                     throw new Error('Kota tidak ditemukan');
                 }
 
-                // Tampilkan Cuaca Saat Ini
                 document.getElementById('cityName').innerText = dataCurrent.name;
                 document.getElementById('temperature').innerText = `${Math.round(dataCurrent.main.temp)}°C`;
                 document.getElementById('description').innerText = dataCurrent.weather[0].description;
                 document.getElementById('currentIcon').src = `https://openweathermap.org/img/wn/${dataCurrent.weather[0].icon}@2x.png`;
                 
-                // 2. Ambil Ramalan per 3 Jam
                 const resForecast = await fetch(urlForecast);
                 const dataForecast = await resForecast.json();
 
-                // Ambil 5 data ramalan ke depan (sekitar 15 jam ke depan)
                 const nextFewHours = dataForecast.list.slice(0, 5);
                 
                 nextFewHours.forEach(item => {
-                    // Mengambil jam dari data (waktu lokal)
                     const date = new Date(item.dt * 1000);
                     let hours = date.getHours();
                     let jamFormatted = hours < 10 ? `0${hours}:00` : `${hours}:00`;
 
-                    // Buat elemen HTML untuk per jam
                     const forecastItem = document.createElement('div');
                     forecastItem.className = 'forecast-item';
                     forecastItem.innerHTML = `
@@ -200,15 +199,14 @@
                     forecastList.appendChild(forecastItem);
                 });
 
-                // Tampilkan semuanya
                 loadingMessage.style.display = 'none';
                 weatherResult.style.display = 'block';
                 forecastContainer.style.display = 'block';
 
             } catch (error) {
                 loadingMessage.style.display = 'none';
+                errorMessage.innerText = 'Data tidak ditemukan atau nama kota salah.';
                 errorMessage.style.display = 'block';
-                console.error(error);
             }
         }
 
@@ -218,8 +216,9 @@
             if (type === 'city') {
                 const city = document.getElementById('cityInput').value;
                 if (!city) {
-                    alert('Masukkan nama kota dulu bro!');
                     loadingMessage.style.display = 'none';
+                    errorMessage.innerText = 'Masukkan nama kota dulu bro!';
+                    errorMessage.style.display = 'block';
                     return;
                 }
                 const urlCurrent = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${apiKey}&units=metric&lang=id`;
@@ -236,13 +235,17 @@
                             const urlForecast = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=id`;
                             fetchWeatherData(urlCurrent, urlForecast);
                         },
-                        () => {
-                            alert("Gagal dapat lokasi bro, pastikan GPS nyala dan browser diizinkan akses lokasi.");
+                        (error) => {
                             loadingMessage.style.display = 'none';
+                            // POP-UP DIHAPUS, DIGANTI JADI TEKS MERAH DI BAWAH TOMBOL
+                            errorMessage.innerText = "Gagal membaca lokasi. Pastikan GPS HP nyala, matikan Mode Pesawat, dan izinkan akses lokasi di browser.";
+                            errorMessage.style.display = 'block';
                         }
                     );
                 } else {
-                    alert("Browser tidak mendukung lokasi otomatis.");
+                    loadingMessage.style.display = 'none';
+                    errorMessage.innerText = "Browser tidak mendukung fitur lokasi.";
+                    errorMessage.style.display = 'block';
                 }
             }
         }
