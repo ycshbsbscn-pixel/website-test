@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Info Cuaca & Ramalan Bro!</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        body {
+            background: linear-gradient(135deg, #74ebd5, #ACB6E5);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+            text-align: center;
+            width: 100%;
+            max-width: 450px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            font-size: 16px;
+            outline: none;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #2b5876;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: 0.3s;
+            margin-bottom: 10px;
+        }
+        button:hover { background-color: #4e4376; }
+        .btn-location { background-color: #28a745; }
+        .btn-location:hover { background-color: #218838; }
+        
+        .weather-result, .forecast-container {
+            margin-top: 20px;
+            display: none; /* Disembunyikan saat awal */
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+        .temp {
+            font-size: 40px;
+            font-weight: bold;
+            color: #ff7e5f;
+            margin: 10px 0;
+        }
+        .desc {
+            font-size: 18px;
+            color: #666;
+            text-transform: capitalize;
+        }
+        
+        /* Desain untuk ramalan per jam */
+        .forecast-title {
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 15px;
+            text-align: left;
+            font-weight: bold;
+        }
+        .forecast-list {
+            display: flex;
+            overflow-x: auto;
+            gap: 15px;
+            padding-bottom: 10px;
+        }
+        .forecast-item {
+            min-width: 80px;
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 14px;
+        }
+        .forecast-item img {
+            width: 50px;
+            height: 50px;
+        }
+        .forecast-time { font-weight: bold; color: #444; }
+        .forecast-temp { color: #ff7e5f; font-weight: bold; }
+        .forecast-desc { font-size: 12px; color: #777; margin-top: 5px; }
+
+        .error, .loading {
+            margin-top: 15px;
+            display: none;
+        }
+        .error { color: red; }
+        .loading { color: #555; font-style: italic; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Cek Cuaca ⛅</h1>
+        
+        <input type="text" id="cityInput" placeholder="Masukkan nama kota (contoh: Jakarta)">
+        <button onclick="getWeather('city')">Cari Berdasarkan Kota</button>
+        <button class="btn-location" onclick="getWeather('location')">📍 Gunakan Lokasi Saat Ini</button>
+
+        <div class="loading" id="loadingMessage">Mencari data cuaca...</div>
+        <div class="error" id="errorMessage">Data tidak ditemukan atau terjadi kesalahan!</div>
+
+        <!-- Hasil Cuaca Saat Ini -->
+        <div class="weather-result" id="weatherResult">
+            <h2 id="cityName">Nama Kota</h2>
+            <img id="currentIcon" src="" alt="icon cuaca" style="width: 80px;">
+            <div class="temp" id="temperature">0°C</div>
+            <div class="desc" id="description">Kondisi</div>
+        </div>
+
+        <!-- Hasil Ramalan Beberapa Jam ke Depan -->
+        <div class="forecast-container" id="forecastContainer">
+            <div class="forecast-title">Ramalan Jam Berikutnya:</div>
+            <div class="forecast-list" id="forecastList">
+                <!-- Item ramalan akan muncul di sini via JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = '1a5561966733dade6aee541ec1022a75'; 
+
+        const weatherResult = document.getElementById('weatherResult');
+        const forecastContainer = document.getElementById('forecastContainer');
+        const errorMessage = document.getElementById('errorMessage');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const forecastList = document.getElementById('forecastList');
+
+        function resetUI() {
+            weatherResult.style.display = 'none';
+            forecastContainer.style.display = 'none';
+            errorMessage.style.display = 'none';
+            loadingMessage.style.display = 'block';
+            forecastList.innerHTML = ''; // Bersihkan list sebelumnya
+        }
+
+        async function fetchWeatherData(urlCurrent, urlForecast) {
+            try {
+                // 1. Ambil Cuaca Saat Ini
+                const resCurrent = await fetch(urlCurrent);
+                const dataCurrent = await resCurrent.json();
+                
+                if (dataCurrent.cod === '404' || dataCurrent.cod === '400') {
+                    throw new Error('Kota tidak ditemukan');
+                }
+
+                // Tampilkan Cuaca Saat Ini
+                document.getElementById('cityName').innerText = dataCurrent.name;
+                document.getElementById('temperature').innerText = `${Math.round(dataCurrent.main.temp)}°C`;
+                document.getElementById('description').innerText = dataCurrent.weather[0].description;
+                document.getElementById('currentIcon').src = `https://openweathermap.org/img/wn/${dataCurrent.weather[0].icon}@2x.png`;
+                
+                // 2. Ambil Ramalan per 3 Jam
+                const resForecast = await fetch(urlForecast);
+                const dataForecast = await resForecast.json();
+
+                // Ambil 5 data ramalan ke depan (sekitar 15 jam ke depan)
+                const nextFewHours = dataForecast.list.slice(0, 5);
+                
+                nextFewHours.forEach(item => {
+                    // Mengambil jam dari data (waktu lokal)
+                    const date = new Date(item.dt * 1000);
+                    let hours = date.getHours();
+                    let jamFormatted = hours < 10 ? `0${hours}:00` : `${hours}:00`;
+
+                    // Buat elemen HTML untuk per jam
+                    const forecastItem = document.createElement('div');
+                    forecastItem.className = 'forecast-item';
+                    forecastItem.innerHTML = `
+                        <div class="forecast-time">${jamFormatted}</div>
+                        <img src="https://openweathermap.org/img/wn/${item.weather[0].icon}.png" alt="icon">
+                        <div class="forecast-temp">${Math.round(item.main.temp)}°C</div>
+                        <div class="forecast-desc">${item.weather[0].description}</div>
+                    `;
+                    forecastList.appendChild(forecastItem);
+                });
+
+                // Tampilkan semuanya
+                loadingMessage.style.display = 'none';
+                weatherResult.style.display = 'block';
+                forecastContainer.style.display = 'block';
+
+            } catch (error) {
+                loadingMessage.style.display = 'none';
+                errorMessage.style.display = 'block';
+                console.error(error);
+            }
+        }
+
+        function getWeather(type) {
+            resetUI();
+            
+            if (type === 'city') {
+                const city = document.getElementById('cityInput').value;
+                if (!city) {
+                    alert('Masukkan nama kota dulu bro!');
+                    loadingMessage.style.display = 'none';
+                    return;
+                }
+                const urlCurrent = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${apiKey}&units=metric&lang=id`;
+                const urlForecast = `https://api.openweathermap.org/data/2.5/forecast?q=${city}&appid=${apiKey}&units=metric&lang=id`;
+                fetchWeatherData(urlCurrent, urlForecast);
+
+            } else if (type === 'location') {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const lat = position.coords.latitude;
+                            const lon = position.coords.longitude;
+                            const urlCurrent = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=id`;
+                            const urlForecast = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=id`;
+                            fetchWeatherData(urlCurrent, urlForecast);
+                        },
+                        () => {
+                            alert("Gagal dapat lokasi bro, pastikan GPS nyala dan browser diizinkan akses lokasi.");
+                            loadingMessage.style.display = 'none';
+                        }
+                    );
+                } else {
+                    alert("Browser tidak mendukung lokasi otomatis.");
+                }
+            }
+        }
+    </script>
+</body>
+</html>
