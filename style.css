@@ -142,3 +142,108 @@ button {
 .forecast-desc { font-size: 11px; color: #777; text-transform: capitalize; }
 
 .footer { text-align: center; margin-top: 20px; color: #999; font-size: 12px; }
+
+/* ============================================================
+   LOCATION PROMPT — fallback kalau izin ditolak
+   ============================================================ */
+.location-prompt {
+  text-align: center;
+  padding: 24px 20px;
+  margin-bottom: 16px;
+  animation: fadeIn 0.5s ease;
+}
+
+.location-prompt.hidden {
+  display: none !important;
+}
+
+.prompt-icon {
+  color: var(--icon-accent, #ff9a3c);
+  margin-bottom: 12px;
+  display: inline-flex;
+  padding: 12px;
+  background: rgba(255, 154, 60, 0.1);
+  border-radius: 50%;
+  animation: pulse-soft 2s infinite;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.85; }
+}
+
+.prompt-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #222;
+  margin-bottom: 8px;
+}
+
+.prompt-text {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.6;
+  margin-bottom: 16px;
+  max-width: 320px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.btn-retry {
+  background: var(--accent, #2b5876);
+  color: #fff;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: 0.2s;
+}
+
+.btn-retry:hover {
+  background: var(--accent-hover, #4e4376);
+  transform: translateY(-1px);
+}
+
+.prompt-hint {
+  font-size: 11px;
+  color: #999;
+  margin-top: 14px;
+  line-height: 1.5;
+}
+
+/* Status loading dengan spinner */
+.status.show {
+  display: block;
+}
+
+.status::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #ddd;
+  border-top-color: var(--accent, #2b5876);
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: -2px;
+  animation: spin 0.8s linear infinite;
+}
+
+.status.error::before {
+  display: none;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Fade in animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

