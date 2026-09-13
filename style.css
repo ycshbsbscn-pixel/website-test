@@ -216,7 +216,6 @@ button {
   line-height: 1.5;
 }
 
-/* Status loading dengan spinner */
 .status.show {
   display: block;
 }
@@ -242,7 +241,6 @@ button {
   to { transform: rotate(360deg); }
 }
 
-/* Fade in animation */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
