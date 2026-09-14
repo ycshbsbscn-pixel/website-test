@@ -3,160 +3,165 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cuaca Pro — Ramalan Real-time</title>
+<meta name="description" content="Cuaca Pro — Ramalan cuaca real-time akurat untuk wilayah Indonesia. Powered by BMKG & OpenWeatherMap.">
+<meta name="theme-color" content="#2b5876">
+<title>Cuaca Pro</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='4.5' fill='%23ff9a3c'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 
-<!-- ============================================================
-     FIREBASE COMPAT SDK (v10.8.0)
-     Di-load via script tag biasa — TANPA type="module"
-     ============================================================ -->
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+<!-- Firebase Compat SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js" defer></script>
 </head>
 <body>
 
-<!-- ============================================================
-     SVG SPRITE — semua icon cuaca + UI (tanpa emoji)
-     ============================================================ -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
-    <!-- Cuaca -->
-    <symbol id="i-sun" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="4.5" fill="currentColor"/>
-      <g stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-        <line x1="12" y1="2" x2="12" y2="5"/>
-        <line x1="12" y1="19" x2="12" y2="22"/>
-        <line x1="2" y1="12" x2="5" y2="12"/>
-        <line x1="19" y1="12" x2="22" y2="12"/>
-        <line x1="4.9" y1="4.9" x2="7" y2="7"/>
-        <line x1="17" y1="17" x2="19.1" y2="19.1"/>
-        <line x1="4.9" y1="19.1" x2="7" y2="17"/>
-        <line x1="17" y1="7" x2="19.1" y2="4.9"/>
-      </g>
-    </symbol>
-    <symbol id="i-cloud" viewBox="0 0 24 24">
-      <path fill="currentColor" d="M6.5 19a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 9.2 4 4 0 0 1 17 19H6.5z"/>
-    </symbol>
-    <symbol id="i-sun-cloud" viewBox="0 0 24 24">
-      <circle cx="8" cy="7" r="3" fill="currentColor" opacity="0.9"/>
-      <g stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9">
-        <line x1="8" y1="1.5" x2="8" y2="3"/>
-        <line x1="2.5" y1="7" x2="4" y2="7"/>
-        <line x1="3.7" y1="2.7" x2="4.7" y2="3.7"/>
-      </g>
-      <path fill="currentColor" d="M9.5 20a4 4 0 0 1-.4-7.98A5.5 5.5 0 0 1 19.4 12 3.5 3.5 0 0 1 19 20H9.5z"/>
-    </symbol>
-    <symbol id="i-rain" viewBox="0 0 24 24">
-      <path fill="currentColor" d="M6.5 15a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 5.2 4 4 0 0 1 17 15H6.5z"/>
-      <g stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-        <line x1="8" y1="17" x2="7" y2="20"/>
-        <line x1="12" y1="17" x2="11" y2="20"/>
-        <line x1="16" y1="17" x2="15" y2="20"/>
-      </g>
-    </symbol>
-    <symbol id="i-drizzle" viewBox="0 0 24 24">
-      <path fill="currentColor" d="M6.5 15a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 5.2 4 4 0 0 1 17 15H6.5z"/>
-      <g stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-        <line x1="9" y1="17" x2="9" y2="18.5"/>
-        <line x1="13" y1="17" x2="13" y2="18.5"/>
-        <line x1="17" y1="17" x2="17" y2="18.5"/>
-      </g>
-    </symbol>
-    <symbol id="i-thunder" viewBox="0 0 24 24">
-      <path fill="currentColor" d="M6.5 14a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 4.2 4 4 0 0 1 17 14H6.5z"/>
-      <path fill="#f6c445" stroke="#000" stroke-width="0.5" d="M13 12l-3.5 5.5H12l-1 4 4.5-6H13l1-3.5z"/>
-    </symbol>
-    <symbol id="i-snow" viewBox="0 0 24 24">
-      <path fill="currentColor" d="M6.5 15a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 5.2 4 4 0 0 1 17 15H6.5z"/>
-      <g fill="currentColor">
-        <circle cx="8" cy="18" r="1"/>
-        <circle cx="12" cy="19.5" r="1"/>
-        <circle cx="16" cy="18" r="1"/>
-        <circle cx="10" cy="21" r="1"/>
-        <circle cx="14" cy="21.5" r="1"/>
-      </g>
-    </symbol>
-    <symbol id="i-mist" viewBox="0 0 24 24">
-      <g stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-        <line x1="3" y1="8" x2="21" y2="8"/>
-        <line x1="5" y1="12" x2="19" y2="12"/>
-        <line x1="3" y1="16" x2="21" y2="16"/>
-        <line x1="6" y1="20" x2="18" y2="20"/>
-      </g>
-    </symbol>
-
-    <!-- UI / Info -->
-    <symbol id="i-pin" viewBox="0 0 24 24">
-      <path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
-    </symbol>
-    <symbol id="i-map-pin" viewBox="0 0 24 24">
-      <path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
-    </symbol>
-    <symbol id="i-navigation" viewBox="0 0 24 24">
-      <path fill="currentColor" d="M21.7 2.3a1 1 0 0 1 .1 1L15 21.4a1 1 0 0 1-1.86.1L9.5 14l-7.5-3.65a1 1 0 0 1 .1-1.86L20.7 2.2a1 1 0 0 1 1 .1z"/>
-    </symbol>
-    <symbol id="i-droplet" viewBox="0 0 24 24">
-      <path fill="currentColor" d="M12 2.5s6 7 6 12a6 6 0 0 1-12 0c0-5 6-12 6-12z"/>
-    </symbol>
-    <symbol id="i-wind" viewBox="0 0 24 24">
-      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <path d="M3 8h11a3 3 0 1 0-3-3"/>
-        <path d="M3 12h15a3 3 0 1 1-3 3"/>
-        <path d="M3 16h9a2.5 2.5 0 1 1-2.5 2.5"/>
-      </g>
-    </symbol>
-    <symbol id="i-thermo" viewBox="0 0 24 24">
-      <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M14 14.76V5a2 2 0 1 0-4 0v9.76a4 4 0 1 0 4 0z"/>
-      <circle cx="12" cy="18" r="2" fill="currentColor"/>
-    </symbol>
-    <symbol id="i-refresh" viewBox="0 0 24 24">
-      <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5"/>
-    </symbol>
-    <symbol id="i-search" viewBox="0 0 24 24">
-      <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/>
-      <line x1="15.5" y1="15.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    </symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="7" y2="17"/><line x1="17" y1="7" x2="19.1" y2="4.9"/></g></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path fill="currentColor" d="M6.5 19a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 9.2 4 4 0 0 1 17 19H6.5z"/></symbol>
+    <symbol id="i-sun-cloud" viewBox="0 0 24 24"><circle cx="8" cy="7" r="3" fill="currentColor" opacity="0.9"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9"><line x1="8" y1="1.5" x2="8" y2="3"/><line x1="2.5" y1="7" x2="4" y2="7"/><line x1="3.7" y1="2.7" x2="4.7" y2="3.7"/></g><path fill="currentColor" d="M9.5 20a4 4 0 0 1-.4-7.98A5.5 5.5 0 0 1 19.4 12 3.5 3.5 0 0 1 19 20H9.5z"/></symbol>
+    <symbol id="i-rain" viewBox="0 0 24 24"><path fill="currentColor" d="M6.5 15a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 5.2 4 4 0 0 1 17 15H6.5z"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="8" y1="17" x2="7" y2="20"/><line x1="12" y1="17" x2="11" y2="20"/><line x1="16" y1="17" x2="15" y2="20"/></g></symbol>
+    <symbol id="i-drizzle" viewBox="0 0 24 24"><path fill="currentColor" d="M6.5 15a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 5.2 4 4 0 0 1 17 15H6.5z"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="9" y1="17" x2="9" y2="18.5"/><line x1="13" y1="17" x2="13" y2="18.5"/><line x1="17" y1="17" x2="17" y2="18.5"/></g></symbol>
+    <symbol id="i-thunder" viewBox="0 0 24 24"><path fill="currentColor" d="M6.5 14a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 4.2 4 4 0 0 1 17 14H6.5z"/><path fill="#f6c445" stroke="#000" stroke-width="0.5" d="M13 12l-3.5 5.5H12l-1 4 4.5-6H13l1-3.5z"/></symbol>
+    <symbol id="i-snow" viewBox="0 0 24 24"><path fill="currentColor" d="M6.5 15a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 5.2 4 4 0 0 1 17 15H6.5z"/><g fill="currentColor"><circle cx="8" cy="18" r="1"/><circle cx="12" cy="19.5" r="1"/><circle cx="16" cy="18" r="1"/><circle cx="10" cy="21" r="1"/><circle cx="14" cy="21.5" r="1"/></g></symbol>
+    <symbol id="i-mist" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="8" x2="21" y2="8"/><line x1="5" y1="12" x2="19" y2="12"/><line x1="3" y1="16" x2="21" y2="16"/><line x1="6" y1="20" x2="18" y2="20"/></g></symbol>
+    <symbol id="i-map-pin" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></symbol>
+    <symbol id="i-navigation" viewBox="0 0 24 24"><path fill="currentColor" d="M21.7 2.3a1 1 0 0 1 .1 1L15 21.4a1 1 0 0 1-1.86.1L9.5 14l-7.5-3.65a1 1 0 0 1 .1-1.86L20.7 2.2a1 1 0 0 1 1 .1z"/></symbol>
+    <symbol id="i-droplet" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.5s6 7 6 12a6 6 0 0 1-12 0c0-5 6-12 6-12z"/></symbol>
+    <symbol id="i-wind" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 12h15a3 3 0 1 1-3 3"/><path d="M3 16h9a2.5 2.5 0 1 1-2.5 2.5"/></g></symbol>
+    <symbol id="i-thermo" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M14 14.76V5a2 2 0 1 0-4 0v9.76a4 4 0 1 0 4 0z"/><circle cx="12" cy="18" r="2" fill="currentColor"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><line x1="15.5" y1="15.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="12 7 12 12 15 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="11" x2="12" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="8" r="1.2" fill="currentColor"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M12 3l8 3v6c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V6l8-3z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/></symbol>
   </defs>
 </svg>
 
-<!-- ============================================================
-     APP
-     ============================================================ -->
-<div class="app" id="app">
+<!-- LANDING PAGE -->
+<div class="landing" id="landing">
+  <div class="landing-container">
+    <div class="landing-brand">
+      <svg width="56" height="56" aria-hidden="true"><use href="#i-sun-cloud"/></svg>
+      <h1>Cuaca Pro</h1>
+      <p class="landing-tagline">Ramalan cuaca real-time, akurat sampai kecamatan di Indonesia</p>
+    </div>
 
-  <!-- Header -->
+    <div class="landing-features">
+      <div class="feature">
+        <svg width="28" height="28" aria-hidden="true"><use href="#i-navigation"/></svg>
+        <div>
+          <strong>Deteksi Otomatis</strong>
+          <span>Cuaca di lokasi Anda dalam hitungan detik</span>
+        </div>
+      </div>
+      <div class="feature">
+        <svg width="28" height="28" aria-hidden="true"><use href="#i-clock"/></svg>
+        <div>
+          <strong>Ramalan 24 Jam</strong>
+          <span>Update tiap 10 menit dari BMKG & OpenWeatherMap</span>
+        </div>
+      </div>
+      <div class="feature">
+        <svg width="28" height="28" aria-hidden="true"><use href="#i-shield"/></svg>
+        <div>
+          <strong>Privasi Terjaga</strong>
+          <span>Data lokasi Anda tidak dijual ke pihak ketiga</span>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-start" id="startBtn">
+      <svg width="18" height="18" aria-hidden="true"><use href="#i-navigation"/></svg>
+      Mulai Sekarang
+    </button>
+
+    <p class="landing-hint">
+      Dengan melanjutkan, Anda menyetujui
+      <a href="#" onclick="return false">Syarat & Ketentuan</a> dan
+      <a href="#" onclick="return false">Kebijakan Privasi</a>.
+    </p>
+  </div>
+</div>
+
+<!-- COOKIE BANNER -->
+<div class="cookie-banner hidden" id="cookieBanner">
+  <div class="cookie-content">
+    <svg width="20" height="20" aria-hidden="true"><use href="#i-info"/></svg>
+    <p>Kami menggunakan cookie untuk meningkatkan pengalaman Anda. <a href="#" onclick="return false">Pelajari</a>.</p>
+    <div class="cookie-actions">
+      <button class="btn-cookie-ghost" id="cookieDecline">Tolak</button>
+      <button class="btn-cookie-accept" id="cookieAccept">Terima</button>
+    </div>
+  </div>
+</div>
+
+<!-- LOCATION CONSENT MODAL -->
+<div class="modal-overlay hidden" id="locationModal">
+  <div class="modal-box">
+    <div class="modal-icon">
+      <svg width="52" height="52" aria-hidden="true"><use href="#i-map-pin"/></svg>
+    </div>
+    <h2 class="modal-title">Izinkan Akses Lokasi?</h2>
+    <p class="modal-text">
+      Cuaca Pro membutuhkan lokasi Anda untuk menampilkan ramalan cuaca yang akurat di wilayah Anda.
+      Lokasi Anda <strong>tidak akan dibagikan</strong> ke pihak ketiga.
+    </p>
+    <div class="modal-options">
+      <button class="btn-modal-primary" id="modalAllow">
+        <svg width="16" height="16" aria-hidden="true"><use href="#i-navigation"/></svg>
+        Izinkan Lokasi
+      </button>
+      <button class="btn-modal-secondary" id="modalManual">
+        <svg width="16" height="16" aria-hidden="true"><use href="#i-search"/></svg>
+        Cari Kota Manual
+      </button>
+      <button class="btn-modal-ghost" id="modalLater">Nanti Saja</button>
+    </div>
+    <p class="modal-hint">
+      Anda bisa mengubah izin ini kapan saja di pengaturan browser Anda.
+    </p>
+  </div>
+</div>
+
+<!-- SEARCH MODAL -->
+<div class="modal-overlay hidden" id="searchModal">
+  <div class="modal-box">
+    <h2 class="modal-title">Cari Kota / Kecamatan</h2>
+    <p class="modal-text">Masukkan nama kota atau kecamatan di Indonesia.</p>
+    <div class="search-input-wrap">
+      <svg width="18" height="18" aria-hidden="true"><use href="#i-search"/></svg>
+      <input type="text" id="searchInput" placeholder="Contoh: Kesesi, Pekalongan, Jakarta..." autocomplete="off">
+    </div>
+    <div class="search-results" id="searchResults"></div>
+    <button class="btn-modal-ghost" id="searchCancel">Batal</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div class="app hidden" id="app">
   <header class="header">
     <div class="brand">
       <svg class="brand-icon" width="32" height="32" aria-hidden="true"><use href="#i-sun-cloud"/></svg>
       <h1>Cuaca Pro</h1>
     </div>
-    <button class="unit-toggle" id="unitToggle" title="Ganti satuan">°C</button>
+    <div class="header-actions">
+      <button class="icon-btn" id="searchBtn" title="Cari kota">
+        <svg width="18" height="18" aria-hidden="true"><use href="#i-search"/></svg>
+      </button>
+      <button class="unit-toggle" id="unitToggle" title="Ganti satuan">°C</button>
+    </div>
   </header>
 
-  <!-- Lokasi prompt (fallback kalau izin ditolak) -->
-  <div class="location-prompt" id="locationPrompt">
-    <div class="prompt-icon">
-      <svg width="48" height="48" aria-hidden="true"><use href="#i-navigation"/></svg>
-    </div>
-    <h2 class="prompt-title">Aktifkan Lokasi</h2>
-    <p class="prompt-text">
-      Untuk menampilkan cuaca di sekitar Anda, aktifkan akses lokasi pada permintaan browser.
-    </p>
-    <button class="btn-retry" id="retryBtn">
-      <svg width="16" height="16" aria-hidden="true"><use href="#i-map-pin"/></svg>
-      Aktifkan Lokasi
-    </button>
-    <p class="prompt-hint">
-      Tidak muncul permintaan? Buka pengaturan browser → izin lokasi → izinkan untuk situs ini.
-    </p>
-  </div>
-
-  <!-- Status (loading / error) -->
   <div class="status" id="status"></div>
 
-  <!-- Kartu cuaca -->
   <section class="weather-card hidden" id="weatherCard">
+    <div class="accuracy-disclaimer hidden" id="accuracyDisclaimer">
+      <svg width="14" height="14" aria-hidden="true"><use href="#i-info"/></svg>
+      <span id="disclaimerText"></span>
+    </div>
+
     <div class="weather-main">
       <div class="weather-info">
         <h2 id="cityName">—</h2>
@@ -177,7 +182,7 @@
           </span>
         </div>
       </div>
-      <div class="weather-icon-wrap" id="currentIconWrap">
+      <div class="weather-icon-wrap">
         <svg class="weather-icon" width="110" height="110" aria-hidden="true">
           <use id="currentIconUse" href="#i-sun-cloud"/>
         </svg>
@@ -195,13 +200,21 @@
     </div>
   </section>
 
-  <!-- Footer -->
   <footer class="footer">
-    <small>Powered by OpenWeatherMap</small>
+    <div class="footer-links">
+      <a href="#" onclick="return false">Tentang</a>
+      <span>·</span>
+      <a href="#" onclick="return false">Privasi</a>
+      <span>·</span>
+      <a href="#" onclick="return false">Syarat</a>
+    </div>
+    <small>© 2026 Cuaca Pro · Data: BMKG & OpenWeatherMap</small>
   </footer>
 </div>
 
-<!-- Script utama — TANPA type="module" -->
-<script src="script.js"></script>
+<!-- Toast -->
+<div class="toast hidden" id="toast"></div>
+
+<script src="script.js" defer></script>
 </body>
 </html>
