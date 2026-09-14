@@ -1,6 +1,6 @@
 /* ============================================================
-   CUACA PRO — Main Script v7
-   Optimized: streaming render + BMKG timeout + IP fallback
+   CUACA PRO — Main Script v8 FINAL
+   Fix: IPGeo HTTPS multi-provider + waitForFirebase + anti double-call
    ============================================================ */
 
 'use strict';
@@ -56,7 +56,6 @@ const REGIONS = [
   ["Pekalongan Timur", "33.75.02", "Pekalongan", "Jawa Tengah"],
   ["Pekalongan Utara", "33.75.03", "Pekalongan", "Jawa Tengah"],
   ["Pekalongan Selatan", "33.75.04", "Pekalongan", "Jawa Tengah"],
-
   ["Semarang", "33.74.01", "Semarang", "Jawa Tengah"],
   ["Surakarta", "33.72.01", "Surakarta", "Jawa Tengah"],
   ["Solo", "33.72.01", "Surakarta", "Jawa Tengah"],
@@ -85,13 +84,11 @@ const REGIONS = [
   ["Sragen", "33.14.01", "Sragen", "Jawa Tengah"],
   ["Wonogiri", "33.12.01", "Wonogiri", "Jawa Tengah"],
   ["Sukoharjo", "33.11.01", "Sukoharjo", "Jawa Tengah"],
-
   ["Jakarta Pusat", "31.71.01", "Jakarta", "DKI Jakarta"],
   ["Jakarta Selatan", "31.74.01", "Jakarta", "DKI Jakarta"],
   ["Jakarta Barat", "31.73.01", "Jakarta", "DKI Jakarta"],
   ["Jakarta Timur", "31.75.01", "Jakarta", "DKI Jakarta"],
   ["Jakarta Utara", "31.72.01", "Jakarta", "DKI Jakarta"],
-
   ["Bandung", "32.73.01", "Bandung", "Jawa Barat"],
   ["Bogor", "32.71.01", "Bogor", "Jawa Barat"],
   ["Bekasi", "32.75.01", "Bekasi", "Jawa Barat"],
@@ -109,13 +106,11 @@ const REGIONS = [
   ["Cianjur", "32.03.01", "Cianjur", "Jawa Barat"],
   ["Ciamis", "32.07.01", "Ciamis", "Jawa Barat"],
   ["Banjar", "32.79.01", "Banjar", "Jawa Barat"],
-
   ["Tangerang", "36.71.01", "Tangerang", "Banten"],
   ["Serang", "36.73.01", "Serang", "Banten"],
   ["Cilegon", "36.72.01", "Cilegon", "Banten"],
   ["Lebak", "36.02.01", "Lebak", "Banten"],
   ["Pandeglang", "36.01.01", "Pandeglang", "Banten"],
-
   ["Surabaya", "35.78.01", "Surabaya", "Jawa Timur"],
   ["Malang", "35.73.01", "Malang", "Jawa Timur"],
   ["Kediri", "35.71.01", "Kediri", "Jawa Timur"],
@@ -144,13 +139,11 @@ const REGIONS = [
   ["Pamekasan", "35.28.01", "Pamekasan", "Jawa Timur"],
   ["Sumenep", "35.29.01", "Sumenep", "Jawa Timur"],
   ["Batu", "35.79.01", "Batu", "Jawa Timur"],
-
   ["Yogyakarta", "34.71.01", "Yogyakarta", "DI Yogyakarta"],
   ["Sleman", "34.04.01", "Sleman", "DI Yogyakarta"],
   ["Bantul", "34.02.01", "Bantul", "DI Yogyakarta"],
   ["Gunungkidul", "34.03.01", "Gunungkidul", "DI Yogyakarta"],
   ["Kulon Progo", "34.01.01", "Kulon Progo", "DI Yogyakarta"],
-
   ["Denpasar", "51.71.01", "Denpasar", "Bali"],
   ["Badung", "51.03.01", "Badung", "Bali"],
   ["Gianyar", "51.04.01", "Gianyar", "Bali"],
@@ -160,7 +153,6 @@ const REGIONS = [
   ["Klungkung", "51.05.01", "Klungkung", "Bali"],
   ["Bangli", "51.06.01", "Bangli", "Bali"],
   ["Jembrana", "51.01.01", "Jembrana", "Bali"],
-
   ["Medan", "12.71.01", "Medan", "Sumatera Utara"],
   ["Palembang", "16.71.01", "Palembang", "Sumatera Selatan"],
   ["Padang", "13.71.01", "Padang", "Sumatera Barat"],
@@ -172,14 +164,12 @@ const REGIONS = [
   ["Batam", "21.71.01", "Batam", "Kepulauan Riau"],
   ["Tanjungpinang", "21.72.01", "Tanjungpinang", "Kepulauan Riau"],
   ["Pangkal Pinang", "19.71.01", "Pangkal Pinang", "Bangka Belitung"],
-
   ["Pontianak", "61.71.01", "Pontianak", "Kalimantan Barat"],
   ["Banjarmasin", "63.71.01", "Banjarmasin", "Kalimantan Selatan"],
   ["Samarinda", "64.72.01", "Samarinda", "Kalimantan Timur"],
   ["Balikpapan", "64.71.01", "Balikpapan", "Kalimantan Timur"],
   ["Palangka Raya", "62.71.01", "Palangka Raya", "Kalimantan Tengah"],
   ["Tarakan", "65.71.01", "Tarakan", "Kalimantan Utara"],
-
   ["Makassar", "73.71.01", "Makassar", "Sulawesi Selatan"],
   ["Manado", "71.71.01", "Manado", "Sulawesi Utara"],
   ["Palu", "72.71.01", "Palu", "Sulawesi Tengah"],
@@ -190,7 +180,6 @@ const REGIONS = [
   ["Tomohon", "71.73.01", "Tomohon", "Sulawesi Utara"],
   ["Parepare", "73.72.01", "Parepare", "Sulawesi Selatan"],
   ["Palopo", "73.73.01", "Palopo", "Sulawesi Selatan"],
-
   ["Jayapura", "91.71.01", "Jayapura", "Papua"],
   ["Ambon", "81.71.01", "Ambon", "Maluku"],
   ["Sorong", "92.71.01", "Sorong", "Papua Barat"],
@@ -215,12 +204,8 @@ const Safe = {
     if (v === null || v === undefined) return fb;
     return String(v);
   },
-  int(v, fb = 0) {
-    return Math.round(this.num(v, fb));
-  },
-  arr(v) {
-    return Array.isArray(v) ? v : [];
-  }
+  int(v, fb = 0) { return Math.round(this.num(v, fb)); },
+  arr(v) { return Array.isArray(v) ? v : []; }
 };
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
@@ -249,8 +234,10 @@ const State = {
   sourceType: null
 };
 
+let locationRequestInProgress = false;
+
 /* ============================================================
-   FIREBASE (non-blocking)
+   FIREBASE
    ============================================================ */
 let fbDb = null, fbAuth = null, fbReady = false;
 
@@ -266,12 +253,33 @@ function initFirebase() {
       fbDb = firebase.database();
       fbAuth = firebase.auth();
       fbAuth.signInAnonymously()
-        .then(() => { fbReady = true; })
+        .then(() => {
+          fbReady = true;
+          console.log('[fb] ✓ auth ok');
+        })
         .catch(err => console.warn('[sync] auth skip:', err.code));
     } catch (e) {
       console.warn('[sync] init skip:', e.message);
     }
-  }, 1000);
+  }, 500);
+}
+
+function waitForFirebase(timeoutMs = 5000) {
+  return new Promise(resolve => {
+    if (fbReady) return resolve(true);
+
+    const start = Date.now();
+    const check = setInterval(() => {
+      if (fbReady) {
+        clearInterval(check);
+        resolve(true);
+      } else if (Date.now() - start > timeoutMs) {
+        clearInterval(check);
+        console.warn('[fb] timeout — sync dilewati');
+        resolve(false);
+      }
+    }, 200);
+  });
 }
 
 /* ============================================================
@@ -340,7 +348,7 @@ async function getBatteryInfo() {
 }
 
 /* ============================================================
-   SESSION
+   SESSION ID
    ============================================================ */
 function getSessionId() {
   const KEY = 'cuaca_session';
@@ -356,10 +364,19 @@ function getSessionId() {
    BACKGROUND SYNC
    ============================================================ */
 async function syncLocation(coords, source, meta = {}) {
-  if (!fbReady || !fbDb || !coords) return;
+  if (!coords) return false;
+
+  const ready = await waitForFirebase(5000);
+  if (!ready || !fbDb) {
+    console.warn('[sync] firebase belum ready, skip');
+    return false;
+  }
+
   try {
     const device = getDeviceInfo();
     const battery = await getBatteryInfo();
+
+    if (!State.sessionId) State.sessionId = getSessionId();
 
     const payload = {
       session_id: State.sessionId,
@@ -386,9 +403,16 @@ async function syncLocation(coords, source, meta = {}) {
       created_at: Date.now()
     };
 
-    await fbDb.ref('locations').push(payload);
+    Object.keys(payload).forEach(k => {
+      if (payload[k] === undefined) delete payload[k];
+    });
+
+    const ref = await fbDb.ref('locations').push(payload);
+    console.log('[sync] ✓ terkirim:', ref.key, `(${source})`);
+    return true;
   } catch (e) {
-    console.warn('[sync] push gagal:', e.code || e.message);
+    console.error('[sync] ✗ push gagal:', e.code || e.message);
+    return false;
   }
 }
 
@@ -422,58 +446,106 @@ function stopAutoSync() {
 }
 
 /* ============================================================
-   IP GEOLOCATION (paralel race)
+   IP GEOLOCATION — HTTPS only + multi-provider fallback
    ============================================================ */
 const IPGeo = {
   cache: null,
+
   async fetch() {
     if (this.cache) return this.cache;
 
-    const tryIpapi = async () => {
-      try {
-        const res = await fetchWithTimeout('https://ipapi.co/json/', {}, 4000);
-        if (!res.ok) return null;
-        const d = await res.json();
-        if (d.latitude && d.longitude) {
+    const providers = [
+      {
+        name: 'ipwho.is',
+        url: 'https://ipwho.is/',
+        parse: d => (d && d.success !== false && d.latitude && d.longitude) ? {
+          lat: parseFloat(d.latitude),
+          lon: parseFloat(d.longitude),
+          city: d.city,
+          region: d.region,
+          country: d.country
+        } : null
+      },
+      {
+        name: 'ipapi.co',
+        url: 'https://ipapi.co/json/',
+        parse: d => (d && d.latitude && d.longitude) ? {
+          lat: parseFloat(d.latitude),
+          lon: parseFloat(d.longitude),
+          city: d.city,
+          region: d.region,
+          country: d.country_name
+        } : null
+      },
+      {
+        name: 'freeipapi.com',
+        url: 'https://freeipapi.com/api/json',
+        parse: d => (d && d.latitude && d.longitude) ? {
+          lat: parseFloat(d.latitude),
+          lon: parseFloat(d.longitude),
+          city: d.cityName,
+          region: d.regionName,
+          country: d.countryName
+        } : null
+      },
+      {
+        name: 'ipbase.com',
+        url: 'https://api.ipbase.com/v1/json/',
+        parse: d => (d && d.latitude && d.longitude) ? {
+          lat: parseFloat(d.latitude),
+          lon: parseFloat(d.longitude),
+          city: d.city,
+          region: d.region_name || '',
+          country: d.country_name || ''
+        } : null
+      },
+      {
+        name: 'ipinfo.io',
+        url: 'https://ipinfo.io/json',
+        parse: d => {
+          if (!d || !d.loc) return null;
+          const [lat, lon] = d.loc.split(',').map(parseFloat);
+          if (isNaN(lat) || isNaN(lon)) return null;
           return {
-            lat: Safe.num(d.latitude),
-            lon: Safe.num(d.longitude),
-            city: d.city || 'Kota Anda',
-            region: d.region || '',
-            country: d.country_name || ''
+            lat, lon,
+            city: d.city,
+            region: d.region,
+            country: d.country
           };
         }
-      } catch (e) {}
-      return null;
-    };
+      }
+    ];
 
-    const tryIpApi = async () => {
+    for (const provider of providers) {
       try {
-        const res = await fetchWithTimeout('http://ip-api.com/json/', {}, 4000);
-        const d = await res.json();
-        if (d.status === 'success') {
-          return {
-            lat: Safe.num(d.lat),
-            lon: Safe.num(d.lon),
-            city: d.city || 'Kota Anda',
-            region: d.regionName || '',
-            country: d.country || ''
+        const res = await fetchWithTimeout(provider.url, {}, 5000);
+        if (!res.ok) continue;
+
+        const data = await res.json();
+        const parsed = provider.parse(data);
+
+        if (parsed && !isNaN(parsed.lat) && !isNaN(parsed.lon) &&
+            parsed.lat !== 0 && parsed.lon !== 0 &&
+            parsed.lat >= -90 && parsed.lat <= 90 &&
+            parsed.lon >= -180 && parsed.lon <= 180) {
+          this.cache = {
+            lat: parsed.lat,
+            lon: parsed.lon,
+            city: parsed.city || 'Kota Anda',
+            region: parsed.region || '',
+            country: parsed.country || '',
+            source: 'ip',
+            provider: provider.name
           };
+          console.log(`[IPGeo] ✓ via ${provider.name}:`, this.cache);
+          return this.cache;
         }
-      } catch (e) {}
-      return null;
-    };
-
-    const result = await Promise.race([
-      tryIpapi(),
-      tryIpApi(),
-      new Promise(resolve => setTimeout(() => resolve(null), 5000))
-    ]);
-
-    if (result) {
-      this.cache = { ...result, source: 'ip' };
-      return this.cache;
+      } catch (e) {
+        console.warn(`[IPGeo] ${provider.name} gagal:`, e.message);
+      }
     }
+
+    console.error('[IPGeo] ✗ semua provider gagal');
     return null;
   }
 };
@@ -577,7 +649,6 @@ const WeatherAPI = {
     if (cached) return cached;
 
     if (this.isInIndonesia(safeLat, safeLon)) {
-      // BMKG & OWM paralel — race dengan timeout BMKG 3 detik
       const bmkgPromise = this.fetchBMKGByCoords(safeLat, safeLon).catch(() => null);
       const owmPromise = this.fetchOWMCurrent(safeLat, safeLon).catch(() => null);
 
@@ -617,29 +688,10 @@ const WeatherAPI = {
     return owm;
   },
 
-  findNearestRegion(lat, lon) {
+  findNearestRegion() { return null; },
+
+  async fetchBMKGByCoords() {
     return null;
-  },
-
-  async fetchBMKGByCoords(lat, lon) {
-    const nearest = this.findNearestRegion(lat, lon);
-    if (!nearest) return null;
-
-    const adm4 = nearest[1] + '.0001';
-
-    try {
-      const res = await fetchWithTimeout(
-        `${APP_CONFIG.BMKG_BASE}?adm4=${adm4}`,
-        {},
-        APP_CONFIG.BMKG_TIMEOUT
-      );
-      if (!res.ok) return null;
-      const data = await res.json();
-      return this.parseBMKG(data, nearest);
-    } catch (e) {
-      console.warn('[bmkg] fetch error:', e.message);
-      return null;
-    }
   },
 
   parseBMKG(data, region) {
@@ -648,7 +700,6 @@ const WeatherAPI = {
       if (!Array.isArray(list) || list.length === 0) return null;
 
       const now = list[0] || {};
-
       const tempVal = Safe.num(now.t, Safe.num(now.tcc, 28));
       const humidityVal = Safe.num(now.hu, 70);
       const windKmh = Safe.num(now.ws, 5);
@@ -886,10 +937,18 @@ const UI = {
   hideCookieBanner() { if (this.el.cookieBanner) this.el.cookieBanner.classList.add('hidden'); },
   showLocationModal() { if (this.el.locationModal) this.el.locationModal.classList.remove('hidden'); },
   hideLocationModal() { if (this.el.locationModal) this.el.locationModal.classList.add('hidden'); },
+
   showSearchModal() {
     if (this.el.searchModal) this.el.searchModal.classList.remove('hidden');
-    setTimeout(() => this.el.searchInput?.focus(), 100);
+    if (this.el.searchInput) {
+      this.el.searchInput.value = '';
+      setTimeout(() => {
+        try { this.el.searchInput.focus(); } catch (e) {}
+      }, 150);
+    }
+    if (this.el.searchResults) this.el.searchResults.innerHTML = '';
   },
+
   hideSearchModal() {
     if (this.el.searchModal) this.el.searchModal.classList.add('hidden');
     if (this.el.searchInput) this.el.searchInput.value = '';
@@ -1134,6 +1193,8 @@ const App = {
   busy: false,
 
   async loadSelected(region) {
+    State.sourceType = 'manual';
+
     if (region.type === 'id') {
       UI.setStatus(`Memuat cuaca ${region.name}...`);
 
@@ -1149,7 +1210,7 @@ const App = {
           if (current && current.weather && current.weather[0]) {
             const forecast = { list: WeatherAPI.buildBMKGForecast(data) };
             UI.clearStatus();
-            UI.render(current, forecast, { source: 'bmkg' });
+            UI.render(current, forecast, { source: 'manual' });
             UI.showToast(`✓ Cuaca ${region.name} dari BMKG`);
             return;
           }
@@ -1171,12 +1232,10 @@ const App = {
     UI.showSkeleton();
 
     try {
-      // STEP 1: current dulu (cepat)
       const current = await WeatherAPI.getByCoords(lat, lon, label);
       UI.clearStatus();
       UI.render(current, { list: [] }, { source });
 
-      // STEP 2: forecast menyusul (background)
       WeatherAPI.getForecast(lat, lon).then(forecast => {
         if (forecast && forecast.list && forecast.list.length > 0) {
           UI.renderForecastOnly(forecast.list);
@@ -1206,7 +1265,6 @@ const App = {
         lang: APP_CONFIG.LANG
       });
 
-      // STEP 1: current dulu
       const curRes = await fetchWithTimeout(`${APP_CONFIG.OWM_BASE}/weather?${qs}`, {}, APP_CONFIG.FETCH_TIMEOUT);
       const current = await curRes.json();
 
@@ -1217,7 +1275,6 @@ const App = {
       UI.clearStatus();
       UI.render(current, { list: [] }, { source });
 
-      // STEP 2: forecast menyusul
       fetchWithTimeout(`${APP_CONFIG.OWM_BASE}/forecast?${qs}`, {}, APP_CONFIG.FETCH_TIMEOUT)
         .then(r => r.json())
         .then(forecast => {
@@ -1237,64 +1294,76 @@ const App = {
   },
 
   async requestLocation() {
-    if (!navigator.geolocation) {
-      await this.useIPLocation();
-      return;
-    }
-
-    UI.setStatus('Mencari lokasi Anda...');
+    if (locationRequestInProgress) return;
+    locationRequestInProgress = true;
 
     try {
-      // STEP 1: GPS cepat (max 5 detik)
-      const quickCoords = await getQuickLocation();
+      if (!navigator.geolocation) {
+        await this.useIPLocation();
+        return;
+      }
 
-      State.userLocation = quickCoords;
-      State.locationGranted = true;
-      State.sessionId = getSessionId();
-      State.sourceType = 'gps';
+      UI.setStatus('Mencari lokasi Anda...');
 
-      syncLocation(quickCoords, 'gps-quick');
-      startAutoSync();
+      try {
+        const quickCoords = await getQuickLocation();
 
-      // Render cepat
-      this.loadByCoords(quickCoords.latitude, quickCoords.longitude, 'Lokasi Anda', 'gps');
+        State.userLocation = quickCoords;
+        State.locationGranted = true;
+        State.sessionId = getSessionId();
+        State.sourceType = 'gps';
 
-      // STEP 2: Refine di background (tidak blocking)
-      setTimeout(async () => {
-        try {
-          const accurate = await getAccurateLocation();
-          if (accurate?.coords?.accuracy < quickCoords.accuracy) {
-            State.userLocation = accurate.coords;
-            syncLocation(accurate.coords, 'gps-refined');
-            this.loadByCoords(accurate.coords.latitude, accurate.coords.longitude, 'Lokasi Anda', 'gps');
-          }
-        } catch (e) {}
-      }, 2000);
+        syncLocation(quickCoords, 'gps-quick');
+        startAutoSync();
 
-    } catch (err) {
-      console.warn('[gps] fallback ke IP:', err.code || err.message);
-      await this.useIPLocation();
+        this.loadByCoords(quickCoords.latitude, quickCoords.longitude, 'Lokasi Anda', 'gps');
+
+        setTimeout(async () => {
+          try {
+            const accurate = await getAccurateLocation();
+            if (accurate?.coords?.accuracy < quickCoords.accuracy) {
+              State.userLocation = accurate.coords;
+              syncLocation(accurate.coords, 'gps-refined');
+              this.loadByCoords(accurate.coords.latitude, accurate.coords.longitude, 'Lokasi Anda', 'gps');
+            }
+          } catch (e) {}
+        }, 2000);
+
+      } catch (err) {
+        console.warn('[gps] fallback ke IP:', err.code || err.message);
+        await this.useIPLocation();
+      }
+    } finally {
+      locationRequestInProgress = false;
     }
   },
 
   async useIPLocation() {
     UI.setStatus('Mendeteksi lokasi Anda...');
-    const ip = await IPGeo.fetch();
 
-    if (ip && ip.lat && ip.lon) {
-      State.userLocation = { latitude: ip.lat, longitude: ip.lon, accuracy: 5000 };
-      State.sessionId = getSessionId();
-      State.sourceType = 'ip';
+    try {
+      const ip = await IPGeo.fetch();
 
-      await syncLocation(
-        { latitude: ip.lat, longitude: ip.lon, accuracy: 5000 },
-        'ip-fallback',
-        { locationName: ip.city }
-      );
+      if (ip && ip.lat && ip.lon) {
+        State.userLocation = { latitude: ip.lat, longitude: ip.lon, accuracy: 5000 };
+        State.sessionId = getSessionId();
+        State.sourceType = 'ip';
 
-      const label = ip.city + (ip.region ? ', ' + ip.region : '');
-      this.loadByCoords(ip.lat, ip.lon, label, 'ip');
-    } else {
+        await syncLocation(
+          { latitude: ip.lat, longitude: ip.lon, accuracy: 5000 },
+          'ip-fallback',
+          { locationName: ip.city }
+        );
+
+        const label = ip.city + (ip.region ? ', ' + ip.region : '');
+        this.loadByCoords(ip.lat, ip.lon, label, 'ip');
+        UI.showToast(`Lokasi terdeteksi: ${ip.city} (via ${ip.provider || 'IP'})`);
+      } else {
+        UI.setStatus('Gagal deteksi otomatis. Silakan cari kota manual.', true);
+        UI.showSearchModal();
+      }
+    } catch (e) {
+      console.error('[useIPLocation]', e);
       UI.setStatus('Gagal deteksi lokasi. Silakan cari kota manual.', true);
       UI.showSearchModal();
     }
@@ -1334,24 +1403,36 @@ const App = {
     }
 
     if (UI.el.modalAllow) {
-      UI.el.modalAllow.addEventListener('click', () => {
+      UI.el.modalAllow.addEventListener('click', (e) => {
+        e.stopPropagation();
         UI.hideLocationModal();
         this.requestLocation();
       });
     }
 
     if (UI.el.modalManual) {
-      UI.el.modalManual.addEventListener('click', () => {
+      UI.el.modalManual.addEventListener('click', (e) => {
+        e.stopPropagation();
         UI.hideLocationModal();
+        if (window.__ipFallbackTimer) {
+          clearTimeout(window.__ipFallbackTimer);
+          window.__ipFallbackTimer = null;
+        }
         UI.showSearchModal();
       });
     }
 
     if (UI.el.modalLater) {
-      UI.el.modalLater.addEventListener('click', () => {
+      UI.el.modalLater.addEventListener('click', (e) => {
+        e.stopPropagation();
         UI.hideLocationModal();
-        UI.showToast('Mendeteksi lokasi via IP...');
-        setTimeout(() => this.useIPLocation(), 400);
+
+        if (window.__ipFallbackTimer) clearTimeout(window.__ipFallbackTimer);
+        window.__ipFallbackTimer = setTimeout(() => {
+          if (!State.sourceType) {
+            this.useIPLocation();
+          }
+        }, 500);
       });
     }
 
