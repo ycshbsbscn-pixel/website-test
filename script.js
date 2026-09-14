@@ -1,6 +1,7 @@
 /* ============================================================
-   CUACA PRO — Main Script v9 FINAL
-   Fix: GPS tidak flashback ke IP + race condition + timer clear
+   CUACA PRO — Main Script v10 FINAL
+   Separation: GPS tidak pernah fallback ke IP
+   IP hanya kalau user klik "Cari Kota Manual"
    ============================================================ */
 
 'use strict';
@@ -231,12 +232,10 @@ const State = {
   syncTimer: null,
   syncStartTime: null,
   isSyncing: false,
-  sourceType: null
+  sourceType: null // 'gps' | 'ip' | 'manual' | null
 };
 
-// Global flags untuk cegah race condition
 let locationRequestInProgress = false;
-let ipFallbackTimer = null;
 
 /* ============================================================
    FIREBASE
@@ -429,6 +428,8 @@ function startAutoSync() {
       return;
     }
     if (document.hidden) return;
+    // HANYA sync kalau sourceType = gps
+    if (State.sourceType !== 'gps') return;
     if (!navigator.geolocation) return;
 
     navigator.geolocation.getCurrentPosition(
@@ -448,7 +449,7 @@ function stopAutoSync() {
 }
 
 /* ============================================================
-   IP GEOLOCATION — HTTPS only + multi-provider
+   IP GEOLOCATION
    ============================================================ */
 const IPGeo = {
   cache: null,
@@ -508,12 +509,7 @@ const IPGeo = {
           if (!d || !d.loc) return null;
           const [lat, lon] = d.loc.split(',').map(parseFloat);
           if (isNaN(lat) || isNaN(lon)) return null;
-          return {
-            lat, lon,
-            city: d.city,
-            region: d.region,
-            country: d.country
-          };
+          return { lat, lon, city: d.city, region: d.region, country: d.country };
         }
       }
     ];
@@ -567,8 +563,8 @@ function getPosition(options) {
 async function getQuickLocation() {
   const pos = await getPosition({
     enableHighAccuracy: false,
-    timeout: 10000,
-    maximumAge: 30000
+    timeout: 15000,
+    maximumAge: 60000
   });
   return {
     latitude: Safe.num(pos?.coords?.latitude),
@@ -690,9 +686,7 @@ const WeatherAPI = {
     return owm;
   },
 
-  async fetchBMKGByCoords() {
-    return null;
-  },
+  async fetchBMKGByCoords() { return null; },
 
   parseBMKG(data, region) {
     try {
@@ -1293,14 +1287,10 @@ const App = {
     }
   },
 
-  async requestLocation() {
-    // Clear semua IP fallback timer yang pending
-    if (ipFallbackTimer) {
-      clearTimeout(ipFallbackTimer);
-      ipFallbackTimer = null;
-    }
-
-    // Kalau sedang ada request GPS lain, skip
+  /* ============================================================
+     GPS ONLY — Tidak ada fallback ke IP
+     ============================================================ */
+  async requestGPS() {
     if (locationRequestInProgress) {
       console.log('[gps] request sedang berjalan, skip');
       return;
@@ -1310,18 +1300,20 @@ const App = {
 
     try {
       if (!navigator.geolocation) {
-        console.warn('[gps] tidak tersedia, fallback IP');
+        console.error('[gps] tidak tersedia di browser ini');
+        UI.setStatus('Browser tidak mendukung GPS. Silakan cari kota manual.', true);
         locationRequestInProgress = false;
-        await this.useIPLocation();
+        // Tampilkan search manual
+        UI.showSearchModal();
         return;
       }
 
-      UI.setStatus('Mencari lokasi Anda...');
+      UI.setStatus('Mencari lokasi Anda via GPS...');
 
       try {
         const quickCoords = await getQuickLocation();
 
-        // SUCCESS: set source = gps
+        // SUCCESS GPS
         State.userLocation = quickCoords;
         State.locationGranted = true;
         State.sessionId = getSessionId();
@@ -1350,41 +1342,33 @@ const App = {
         }, 2000);
 
       } catch (err) {
-        // GPS gagal (user tolak, timeout, dll)
+        // GPS GAGAL — langsung tampil search modal, TIDAK fallback ke IP
         console.warn('[gps] gagal:', err.code, err.message);
 
-        // Cek apakah user menolak
-        if (err.code === 1) {
-          UI.setStatus('Izin lokasi ditolak.', true);
-          locationRequestInProgress = false;
-          UI.showSearchModal();
-          return;
-        }
+        let msg = 'Gagal mendapatkan GPS.';
+        if (err.code === 1) msg = 'Izin lokasi ditolak. Cari kota manual:';
+        else if (err.code === 2) msg = 'GPS tidak tersedia. Cari kota manual:';
+        else if (err.code === 3) msg = 'GPS timeout. Cari kota manual:';
 
-        // Timeout atau error lain → fallback ke IP
-        locationRequestInProgress = false;
-        await this.useIPLocation();
-        return;
+        UI.setStatus(msg, true);
+        UI.showSearchModal();
       }
     } finally {
       locationRequestInProgress = false;
     }
   },
 
-  async useIPLocation() {
-    // Guard: kalau sudah ada GPS, jangan override
+  /* ============================================================
+     IP LOCATION — HANYA dipanggil kalau user klik "Cari Kota Manual"
+     ============================================================ */
+  async requestIPLocation() {
+    // Guard: kalau sudah ada GPS aktif, jangan override
     if (State.sourceType === 'gps' && State.userLocation) {
-      console.log('[IP] skip — sudah ada GPS');
+      console.log('[IP] skip — sudah ada GPS aktif');
       return;
     }
 
-    // Guard: kalau sudah ada IP
-    if (State.sourceType === 'ip' && State.userLocation) {
-      console.log('[IP] skip — sudah ada IP');
-      return;
-    }
-
-    UI.setStatus('Mendeteksi lokasi Anda...');
+    UI.setStatus('Mendeteksi lokasi via IP...');
 
     try {
       const ip = await IPGeo.fetch();
@@ -1402,14 +1386,14 @@ const App = {
 
         const label = ip.city + (ip.region ? ', ' + ip.region : '');
         this.loadByCoords(ip.lat, ip.lon, label, 'ip');
-        UI.showToast(`Lokasi terdeteksi: ${ip.city} (via ${ip.provider || 'IP'})`);
+        UI.showToast(`Lokasi terdeteksi: ${ip.city}`);
       } else {
-        UI.setStatus('Gagal deteksi otomatis. Silakan cari kota manual.', true);
+        UI.setStatus('Gagal deteksi via IP. Cari kota manual:', true);
         UI.showSearchModal();
       }
     } catch (e) {
-      console.error('[useIPLocation]', e);
-      UI.setStatus('Gagal deteksi lokasi. Silakan cari kota manual.', true);
+      console.error('[requestIPLocation]', e);
+      UI.setStatus('Gagal deteksi via IP. Cari kota manual:', true);
       UI.showSearchModal();
     }
   },
@@ -1449,65 +1433,46 @@ const App = {
       });
     }
 
-    // ===== Location Modal — IZINKAN =====
+    // ===== Modal: IZINKAN LOKASI → GPS ONLY =====
     if (UI.el.modalAllow) {
       UI.el.modalAllow.addEventListener('click', (e) => {
         e.stopPropagation();
         UI.hideLocationModal();
 
-        // PENTING: clear semua timer pending
-        if (ipFallbackTimer) {
-          clearTimeout(ipFallbackTimer);
-          ipFallbackTimer = null;
-        }
-
-        // Reset state supaya fresh
+        // Reset state biar fresh
         State.sourceType = null;
         locationRequestInProgress = false;
 
-        this.requestLocation();
+        // Panggil GPS (bukan IP!)
+        this.requestGPS();
       });
     }
 
-    // ===== Location Modal — CARI MANUAL =====
+    // ===== Modal: CARI KOTA MANUAL → IP dulu, lalu search modal =====
     if (UI.el.modalManual) {
       UI.el.modalManual.addEventListener('click', (e) => {
         e.stopPropagation();
         UI.hideLocationModal();
 
-        // PENTING: clear semua timer pending
-        if (ipFallbackTimer) {
-          clearTimeout(ipFallbackTimer);
-          ipFallbackTimer = null;
-        }
+        // Coba deteksi via IP dulu
+        this.requestIPLocation();
 
-        // Set source = manual biar gak trigger IP fallback
-        State.sourceType = 'manual';
-
-        UI.showSearchModal();
+        // Setelah 800ms, tampilkan search modal sebagai fallback
+        setTimeout(() => {
+          if (!State.sourceType) {
+            UI.showSearchModal();
+          }
+        }, 800);
       });
     }
 
-    // ===== Location Modal — NANTI SAJA =====
+    // ===== Modal: NANTI SAJA → TIDAK ADA AKSI =====
     if (UI.el.modalLater) {
       UI.el.modalLater.addEventListener('click', (e) => {
         e.stopPropagation();
         UI.hideLocationModal();
-
-        // Clear timer lama
-        if (ipFallbackTimer) {
-          clearTimeout(ipFallbackTimer);
-          ipFallbackTimer = null;
-        }
-
-        // Delay 2 detik sebelum fallback ke IP
-        ipFallbackTimer = setTimeout(() => {
-          ipFallbackTimer = null;
-          // Cuma jalan kalau belum ada source
-          if (!State.sourceType) {
-            this.useIPLocation();
-          }
-        }, 2000);
+        // Tidak ada aksi — user harus klik tombol search sendiri
+        UI.showToast('Klik ikon 🔍 untuk cari kota manual');
       });
     }
 
@@ -1566,7 +1531,7 @@ document.addEventListener('DOMContentLoaded', () => {
   App.init();
 });
 
-// Sync saat tab kembali visible
+// Sync saat tab kembali visible — HANYA kalau sourceType = gps
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && State.locationGranted && State.sourceType === 'gps' && navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
