@@ -1,6 +1,6 @@
 /* ============================================================
-   CUACA PRO — Main Script v8 FINAL
-   Fix: IPGeo HTTPS multi-provider + waitForFirebase + anti double-call
+   CUACA PRO — Main Script v9 FINAL
+   Fix: GPS tidak flashback ke IP + race condition + timer clear
    ============================================================ */
 
 'use strict';
@@ -234,7 +234,9 @@ const State = {
   sourceType: null
 };
 
+// Global flags untuk cegah race condition
 let locationRequestInProgress = false;
+let ipFallbackTimer = null;
 
 /* ============================================================
    FIREBASE
@@ -446,7 +448,7 @@ function stopAutoSync() {
 }
 
 /* ============================================================
-   IP GEOLOCATION — HTTPS only + multi-provider fallback
+   IP GEOLOCATION — HTTPS only + multi-provider
    ============================================================ */
 const IPGeo = {
   cache: null,
@@ -565,8 +567,8 @@ function getPosition(options) {
 async function getQuickLocation() {
   const pos = await getPosition({
     enableHighAccuracy: false,
-    timeout: 5000,
-    maximumAge: 60000
+    timeout: 10000,
+    maximumAge: 30000
   });
   return {
     latitude: Safe.num(pos?.coords?.latitude),
@@ -687,8 +689,6 @@ const WeatherAPI = {
     WeatherCache.set(k, owm);
     return owm;
   },
-
-  findNearestRegion() { return null; },
 
   async fetchBMKGByCoords() {
     return null;
@@ -1294,11 +1294,24 @@ const App = {
   },
 
   async requestLocation() {
-    if (locationRequestInProgress) return;
+    // Clear semua IP fallback timer yang pending
+    if (ipFallbackTimer) {
+      clearTimeout(ipFallbackTimer);
+      ipFallbackTimer = null;
+    }
+
+    // Kalau sedang ada request GPS lain, skip
+    if (locationRequestInProgress) {
+      console.log('[gps] request sedang berjalan, skip');
+      return;
+    }
+
     locationRequestInProgress = true;
 
     try {
       if (!navigator.geolocation) {
+        console.warn('[gps] tidak tersedia, fallback IP');
+        locationRequestInProgress = false;
         await this.useIPLocation();
         return;
       }
@@ -1308,30 +1321,50 @@ const App = {
       try {
         const quickCoords = await getQuickLocation();
 
+        // SUCCESS: set source = gps
         State.userLocation = quickCoords;
         State.locationGranted = true;
         State.sessionId = getSessionId();
         State.sourceType = 'gps';
 
+        console.log('[gps] ✓ lokasi didapat:', quickCoords);
+
         syncLocation(quickCoords, 'gps-quick');
         startAutoSync();
 
         this.loadByCoords(quickCoords.latitude, quickCoords.longitude, 'Lokasi Anda', 'gps');
+        UI.showToast('Lokasi GPS terdeteksi');
 
+        // Refine di background
         setTimeout(async () => {
           try {
             const accurate = await getAccurateLocation();
             if (accurate?.coords?.accuracy < quickCoords.accuracy) {
               State.userLocation = accurate.coords;
               syncLocation(accurate.coords, 'gps-refined');
-              this.loadByCoords(accurate.coords.latitude, accurate.coords.longitude, 'Lokasi Anda', 'gps');
+              console.log('[gps] ✓ refined:', accurate.coords);
             }
-          } catch (e) {}
+          } catch (e) {
+            console.warn('[gps] refine gagal:', e.message);
+          }
         }, 2000);
 
       } catch (err) {
-        console.warn('[gps] fallback ke IP:', err.code || err.message);
+        // GPS gagal (user tolak, timeout, dll)
+        console.warn('[gps] gagal:', err.code, err.message);
+
+        // Cek apakah user menolak
+        if (err.code === 1) {
+          UI.setStatus('Izin lokasi ditolak.', true);
+          locationRequestInProgress = false;
+          UI.showSearchModal();
+          return;
+        }
+
+        // Timeout atau error lain → fallback ke IP
+        locationRequestInProgress = false;
         await this.useIPLocation();
+        return;
       }
     } finally {
       locationRequestInProgress = false;
@@ -1339,6 +1372,18 @@ const App = {
   },
 
   async useIPLocation() {
+    // Guard: kalau sudah ada GPS, jangan override
+    if (State.sourceType === 'gps' && State.userLocation) {
+      console.log('[IP] skip — sudah ada GPS');
+      return;
+    }
+
+    // Guard: kalau sudah ada IP
+    if (State.sourceType === 'ip' && State.userLocation) {
+      console.log('[IP] skip — sudah ada IP');
+      return;
+    }
+
     UI.setStatus('Mendeteksi lokasi Anda...');
 
     try {
@@ -1372,6 +1417,7 @@ const App = {
   init() {
     UI.init();
 
+    // ===== Landing =====
     if (UI.el.startBtn) {
       UI.el.startBtn.addEventListener('click', () => {
         UI.hideLanding();
@@ -1384,6 +1430,7 @@ const App = {
       });
     }
 
+    // ===== Cookie =====
     if (UI.el.cookieAccept) {
       UI.el.cookieAccept.addEventListener('click', () => {
         State.cookieAccepted = true;
@@ -1402,43 +1449,73 @@ const App = {
       });
     }
 
+    // ===== Location Modal — IZINKAN =====
     if (UI.el.modalAllow) {
       UI.el.modalAllow.addEventListener('click', (e) => {
         e.stopPropagation();
         UI.hideLocationModal();
+
+        // PENTING: clear semua timer pending
+        if (ipFallbackTimer) {
+          clearTimeout(ipFallbackTimer);
+          ipFallbackTimer = null;
+        }
+
+        // Reset state supaya fresh
+        State.sourceType = null;
+        locationRequestInProgress = false;
+
         this.requestLocation();
       });
     }
 
+    // ===== Location Modal — CARI MANUAL =====
     if (UI.el.modalManual) {
       UI.el.modalManual.addEventListener('click', (e) => {
         e.stopPropagation();
         UI.hideLocationModal();
-        if (window.__ipFallbackTimer) {
-          clearTimeout(window.__ipFallbackTimer);
-          window.__ipFallbackTimer = null;
+
+        // PENTING: clear semua timer pending
+        if (ipFallbackTimer) {
+          clearTimeout(ipFallbackTimer);
+          ipFallbackTimer = null;
         }
+
+        // Set source = manual biar gak trigger IP fallback
+        State.sourceType = 'manual';
+
         UI.showSearchModal();
       });
     }
 
+    // ===== Location Modal — NANTI SAJA =====
     if (UI.el.modalLater) {
       UI.el.modalLater.addEventListener('click', (e) => {
         e.stopPropagation();
         UI.hideLocationModal();
 
-        if (window.__ipFallbackTimer) clearTimeout(window.__ipFallbackTimer);
-        window.__ipFallbackTimer = setTimeout(() => {
+        // Clear timer lama
+        if (ipFallbackTimer) {
+          clearTimeout(ipFallbackTimer);
+          ipFallbackTimer = null;
+        }
+
+        // Delay 2 detik sebelum fallback ke IP
+        ipFallbackTimer = setTimeout(() => {
+          ipFallbackTimer = null;
+          // Cuma jalan kalau belum ada source
           if (!State.sourceType) {
             this.useIPLocation();
           }
-        }, 500);
+        }, 2000);
       });
     }
 
+    // ===== Search buttons =====
     if (UI.el.searchBtn) UI.el.searchBtn.addEventListener('click', () => UI.showSearchModal());
     if (UI.el.searchCancel) UI.el.searchCancel.addEventListener('click', () => UI.hideSearchModal());
 
+    // ===== Search input =====
     let debounce = null;
     if (UI.el.searchInput) {
       UI.el.searchInput.addEventListener('input', e => {
@@ -1458,10 +1535,12 @@ const App = {
       });
     }
 
+    // ===== Unit toggle =====
     if (UI.el.unitToggle) {
       UI.el.unitToggle.addEventListener('click', () => UI.toggleUnit());
     }
 
+    // ===== Modal overlay click =====
     if (UI.el.locationModal) {
       UI.el.locationModal.addEventListener('click', e => {
         if (e.target === UI.el.locationModal) UI.hideLocationModal();
@@ -1473,6 +1552,7 @@ const App = {
       });
     }
 
+    // ===== Restore cookie state =====
     const cookieOk = localStorage.getItem('cuaca_cookie_ok');
     if (cookieOk !== null) State.cookieAccepted = true;
   }
@@ -1486,6 +1566,7 @@ document.addEventListener('DOMContentLoaded', () => {
   App.init();
 });
 
+// Sync saat tab kembali visible
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && State.locationGranted && State.sourceType === 'gps' && navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
