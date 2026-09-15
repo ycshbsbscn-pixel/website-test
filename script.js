@@ -1,6 +1,6 @@
 /* ============================================================
-   CUACA PRO — Main Script v15 FINAL
-   Fix: Cepat tampil (quick GPS) + refine background + cache pintar
+   CUACA PRO — Main Script v16 TURBO
+   Fix: Cached location dulu + race BMKG/OWM + koordinat disembunyikan
    ============================================================ */
 
 'use strict';
@@ -12,15 +12,17 @@ const APP_CONFIG = {
   BMKG_BASE: 'https://api.bmkg.go.id/publik/prakiraan-cuaca',
   CACHE_TTL: 10 * 60 * 1000,
   BMKG_TIMEOUT: 3000,
-  FETCH_TIMEOUT: 6000,
+  FETCH_TIMEOUT: 5000,
   LANG: 'id',
   UNITS: 'metric',
   SYNC_INTERVAL: 60000,
   MAX_SYNC_MINUTES: 30,
-  SHOW_COORDS: true,
-  QUICK_GPS_TIMEOUT: 6000,     // Quick GPS max 6 detik
-  REFINE_GPS_DELAY: 2000,      // Mulai refine 2s setelah tampil
-  REFINE_GPS_TIMEOUT: 20000    // Refine max 20 detik
+  SHOW_COORDS: false,          // <-- DISEMBUNYIKAN dari UI
+  DEBUG_COORDS: true,          // <-- Log di Console saja
+  QUICK_GPS_TIMEOUT: 5000,
+  REFINE_GPS_DELAY: 1500,
+  CACHED_LOCATION_KEY: 'cuaca_last_location',
+  CACHED_LOCATION_TTL: 60 * 60 * 1000  // 1 jam
 };
 
 const FB_CONFIG = {
@@ -34,7 +36,7 @@ const FB_CONFIG = {
 };
 
 /* ============================================================
-   DATABASE WILAYAH INDONESIA (disingkat untuk hemat space)
+   DATABASE WILAYAH INDONESIA
    ============================================================ */
 const REGIONS = [
   // Pekalongan — PRIORITAS
@@ -58,7 +60,7 @@ const REGIONS = [
   ["Pekalongan Timur", "33.75.02", "Pekalongan", "Jawa Tengah", -6.8909, 109.6828],
   ["Pekalongan Utara", "33.75.03", "Pekalongan", "Jawa Tengah", -6.8621, 109.6727],
   ["Pekalongan Selatan", "33.75.04", "Pekalongan", "Jawa Tengah", -6.9162, 109.6679],
-  // Jawa Tengah
+  // Jateng
   ["Semarang", "33.74.01", "Semarang", "Jawa Tengah", -6.9667, 110.4167],
   ["Surakarta", "33.72.01", "Surakarta", "Jawa Tengah", -7.5667, 110.8167],
   ["Solo", "33.72.01", "Surakarta", "Jawa Tengah", -7.5667, 110.8167],
@@ -165,7 +167,7 @@ const Safe = {
   arr(v) { return Array.isArray(v) ? v : []; }
 };
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 6000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -200,11 +202,52 @@ const State = {
   syncStartTime: null,
   isSyncing: false,
   sourceType: null,
-  gpsWarning: null,
   refineTimer: null
 };
 
 let locationRequestInProgress = false;
+
+/* ============================================================
+   CACHED LOCATION (untuk instant load)
+   ============================================================ */
+const LocationCache = {
+  key: APP_CONFIG.CACHED_LOCATION_KEY,
+
+  save(coords) {
+    try {
+      localStorage.setItem(this.key, JSON.stringify({
+        lat: coords.latitude,
+        lon: coords.longitude,
+        accuracy: coords.accuracy,
+        ts: Date.now()
+      }));
+      console.log('[cache-loc] ✓ saved');
+    } catch (e) {}
+  },
+
+  load() {
+    try {
+      const raw = localStorage.getItem(this.key);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (Date.now() - data.ts > APP_CONFIG.CACHED_LOCATION_TTL) {
+        localStorage.removeItem(this.key);
+        return null;
+      }
+      console.log('[cache-loc] ✓ loaded', data);
+      return {
+        latitude: data.lat,
+        longitude: data.lon,
+        accuracy: data.accuracy,
+        age: Date.now() - data.ts
+      };
+    } catch { return null; }
+  },
+
+  clear() {
+    try { localStorage.removeItem(this.key); } catch {}
+  }
+};
 
 /* ============================================================
    FIREBASE
@@ -213,21 +256,23 @@ let fbDb = null, fbAuth = null, fbReady = false;
 
 function initFirebase() {
   if (typeof firebase === 'undefined') return;
-  setTimeout(() => {
-    try {
-      firebase.initializeApp(FB_CONFIG);
-      fbDb = firebase.database();
-      fbAuth = firebase.auth();
-      fbAuth.signInAnonymously()
-        .then(() => { fbReady = true; console.log('[fb] ✓ auth ok'); })
-        .catch(err => console.warn('[sync] auth skip:', err.code));
-    } catch (e) {
-      console.warn('[sync] init skip:', e.message);
-    }
-  }, 300);
+
+  try {
+    firebase.initializeApp(FB_CONFIG);
+    fbDb = firebase.database();
+    fbAuth = firebase.auth();
+    fbAuth.signInAnonymously()
+      .then(() => {
+        fbReady = true;
+        console.log('[fb] ✓ auth ok');
+      })
+      .catch(err => console.warn('[sync] auth skip:', err.code));
+  } catch (e) {
+    console.warn('[sync] init skip:', e.message);
+  }
 }
 
-function waitForFirebase(timeoutMs = 4000) {
+function waitForFirebase(timeoutMs = 3000) {
   return new Promise(resolve => {
     if (fbReady) return resolve(true);
     const start = Date.now();
@@ -328,9 +373,6 @@ async function inferCarrierFromIP() {
   } catch { return null; }
 }
 
-/* ============================================================
-   SESSION ID
-   ============================================================ */
 function getSessionId() {
   const KEY = 'cuaca_session';
   let id = sessionStorage.getItem(KEY);
@@ -346,7 +388,7 @@ function getSessionId() {
    ============================================================ */
 async function syncLocation(coords, source, meta = {}) {
   if (!coords) return false;
-  const ready = await waitForFirebase(4000);
+  const ready = await waitForFirebase(3000);
   if (!ready || !fbDb) return false;
 
   try {
@@ -448,26 +490,17 @@ const IPGeo = {
           city: d.city, region: d.region, country: d.country_name,
           isp: d.org, org: d.org, asn: d.asn
         } : null
-      },
-      {
-        name: 'freeipapi.com', url: 'https://freeipapi.com/api/json',
-        parse: d => (d && d.latitude && d.longitude) ? {
-          lat: parseFloat(d.latitude), lon: parseFloat(d.longitude),
-          city: d.cityName, region: d.regionName, country: d.countryName
-        } : null
       }
     ];
 
     for (const provider of providers) {
       try {
-        const res = await fetchWithTimeout(provider.url, {}, 4000);
+        const res = await fetchWithTimeout(provider.url, {}, 3500);
         if (!res.ok) continue;
         const data = await res.json();
         const parsed = provider.parse(data);
         if (parsed && !isNaN(parsed.lat) && !isNaN(parsed.lon) &&
-            parsed.lat !== 0 && parsed.lon !== 0 &&
-            parsed.lat >= -90 && parsed.lat <= 90 &&
-            parsed.lon >= -180 && parsed.lon <= 180) {
+            parsed.lat !== 0 && parsed.lon !== 0) {
           this.cache = {
             lat: parsed.lat, lon: parsed.lon,
             city: parsed.city || 'Kota Anda',
@@ -485,7 +518,7 @@ const IPGeo = {
 };
 
 /* ============================================================
-   GPS — QUICK (1 sample, max 6 detik)
+   GPS
    ============================================================ */
 function getPosition(options) {
   return new Promise((resolve, reject) => {
@@ -498,10 +531,11 @@ async function getQuickLocation() {
   console.log('[gps-quick] mulai...');
   const start = Date.now();
 
+  // Coba LOW ACCURACY dulu (cepat, pakai WiFi/cell)
   const pos = await getPosition({
-    enableHighAccuracy: false,   // pakai WiFi/cell dulu — cepat
+    enableHighAccuracy: false,
     timeout: APP_CONFIG.QUICK_GPS_TIMEOUT,
-    maximumAge: 30000            // terima posisi < 30 detik
+    maximumAge: 60000
   });
 
   const result = {
@@ -510,24 +544,21 @@ async function getQuickLocation() {
     accuracy: Safe.num(pos?.coords?.accuracy, 9999)
   };
 
-  console.log(`[gps-quick] ✓ ${(Date.now() - start) / 1000}s, ±${result.accuracy.toFixed(0)}m`);
+  console.log(`[gps-quick] ✓ ${((Date.now() - start) / 1000).toFixed(1)}s, ±${result.accuracy.toFixed(0)}m`);
   return result;
 }
 
-/* ============================================================
-   GPS — REFINE (multi-sample, background)
-   ============================================================ */
 async function getRefinedLocation() {
   console.log('[gps-refine] mulai...');
   const samples = [];
-  const MAX_SAMPLES = 6;
+  const MAX_SAMPLES = 4;
   const TARGET_ACC = 20;
 
   for (let i = 0; i < MAX_SAMPLES; i++) {
     try {
       const pos = await getPosition({
         enableHighAccuracy: true,
-        timeout: 8000,
+        timeout: 7000,
         maximumAge: 0
       });
 
@@ -539,25 +570,16 @@ async function getRefinedLocation() {
       });
 
       console.log(`[gps-refine] #${i + 1}: ±${acc.toFixed(0)}m`);
-
-      // Kalau sudah akurat, stop
-      if (acc <= TARGET_ACC && i >= 1) {
-        console.log('[gps-refine] ✓ target tercapai');
-        break;
-      }
-
-      // Delay kecil
-      await new Promise(r => setTimeout(r, 800));
+      if (acc <= TARGET_ACC && i >= 1) break;
+      await new Promise(r => setTimeout(r, 600));
     } catch (e) {
       console.warn(`[gps-refine] #${i + 1} gagal:`, e.code);
     }
   }
 
   if (samples.length === 0) throw new Error('Refine gagal');
-
   const best = samples.reduce((a, b) => a.accuracy < b.accuracy ? a : b);
-  console.log(`[gps-refine] ✓ best ±${best.accuracy.toFixed(0)}m (${samples.length} samples)`);
-
+  console.log(`[gps-refine] ✓ best ±${best.accuracy.toFixed(0)}m`);
   return {
     latitude: best.lat,
     longitude: best.lon,
@@ -604,7 +626,6 @@ const WeatherAPI = {
   findNearestRegion(lat, lon) {
     if (!this.isInIndonesia(lat, lon)) return null;
 
-    // Priority dulu
     for (const prio of PRIORITY_REGIONS) {
       const r = REGIONS.find(x => x[0] === prio.name);
       if (!r) continue;
@@ -625,6 +646,7 @@ const WeatherAPI = {
     return null;
   },
 
+  /* TURBO: fetch BMKG & OWM paralel, pakai yang menang */
   async getByCoords(lat, lon, label) {
     const safeLat = Safe.num(lat);
     const safeLon = Safe.num(lon);
@@ -637,31 +659,42 @@ const WeatherAPI = {
     }
 
     const nearest = this.findNearestRegion(safeLat, safeLon);
-    if (nearest) {
-      const adm4 = nearest.region[1] + '.0001';
-      try {
-        const bmkgData = await fetchWithTimeout(
-          `${APP_CONFIG.BMKG_BASE}?adm4=${adm4}`, {}, APP_CONFIG.BMKG_TIMEOUT
-        ).then(r => r.ok ? r.json() : null);
+    const bmkgPromise = nearest ? this.fetchBMKGCurrent(nearest) : Promise.resolve(null);
+    const owmPromise = this.fetchOWMCurrent(safeLat, safeLon).catch(() => null);
 
-        if (bmkgData) {
-          const parsed = this.parseBMKG(bmkgData, nearest.region);
-          if (parsed && parsed.weather?.[0]) {
-            parsed._cachedAt = Date.now();
-            parsed._sourceCoords = { lat: safeLat, lon: safeLon };
-            parsed._regionDistance = nearest.distance;
-            parsed._priority = !!nearest.priority;
-            WeatherCache.set(k, parsed);
-            return parsed;
-          }
-        }
-      } catch (e) {}
+    // Race: pakai yang paling cepat balik
+    const result = await Promise.race([bmkgPromise, owmPromise]);
+
+    if (result && result.weather?.[0]) {
+      result._cachedAt = Date.now();
+      WeatherCache.set(k, result);
+      return result;
     }
 
-    const owm = await this.fetchOWMCurrent(safeLat, safeLon);
-    owm._cachedAt = Date.now();
-    WeatherCache.set(k, owm);
-    return owm;
+    // Kalau race gagal, coba tunggu yang lain
+    const fallback = await (result === null ? bmkgPromise : owmPromise);
+    if (fallback && fallback.weather?.[0]) {
+      fallback._cachedAt = Date.now();
+      WeatherCache.set(k, fallback);
+      return fallback;
+    }
+
+    throw new Error('Gagal memuat cuaca');
+  },
+
+  async fetchBMKGCurrent(nearest) {
+    const adm4 = nearest.region[1] + '.0001';
+    try {
+      const bmkgData = await fetchWithTimeout(
+        `${APP_CONFIG.BMKG_BASE}?adm4=${adm4}`, {}, APP_CONFIG.BMKG_TIMEOUT
+      ).then(r => r.ok ? r.json() : null);
+
+      if (bmkgData) {
+        const parsed = this.parseBMKG(bmkgData, nearest.region);
+        if (parsed && parsed.weather?.[0]) return parsed;
+      }
+    } catch (e) {}
+    return null;
   },
 
   async getForecast(lat, lon) {
@@ -672,26 +705,35 @@ const WeatherAPI = {
     if (cached) return cached;
 
     const nearest = this.findNearestRegion(safeLat, safeLon);
-    if (nearest) {
-      const adm4 = nearest.region[1] + '.0001';
-      try {
-        const bmkgData = await fetchWithTimeout(
-          `${APP_CONFIG.BMKG_BASE}?adm4=${adm4}`, {}, APP_CONFIG.BMKG_TIMEOUT
-        ).then(r => r.ok ? r.json() : null);
-        if (bmkgData) {
-          const list = this.buildBMKGForecast(bmkgData);
-          if (list.length > 0) {
-            const result = { list };
-            WeatherCache.set(k, result);
-            return result;
-          }
-        }
-      } catch (e) {}
+    const bmkgPromise = nearest ? this.fetchBMKGForecast(nearest) : Promise.resolve(null);
+    const owmPromise = this.fetchOWMForecast(safeLat, safeLon).catch(() => null);
+
+    const result = await Promise.race([bmkgPromise, owmPromise]);
+    if (result && result.list && result.list.length > 0) {
+      WeatherCache.set(k, result);
+      return result;
     }
 
-    const owm = await this.fetchOWMForecast(safeLat, safeLon);
-    WeatherCache.set(k, owm);
-    return owm;
+    const fallback = await (result === null ? bmkgPromise : owmPromise);
+    if (fallback && fallback.list) {
+      WeatherCache.set(k, fallback);
+      return fallback;
+    }
+    return { list: [] };
+  },
+
+  async fetchBMKGForecast(nearest) {
+    const adm4 = nearest.region[1] + '.0001';
+    try {
+      const bmkgData = await fetchWithTimeout(
+        `${APP_CONFIG.BMKG_BASE}?adm4=${adm4}`, {}, APP_CONFIG.BMKG_TIMEOUT
+      ).then(r => r.ok ? r.json() : null);
+      if (bmkgData) {
+        const list = this.buildBMKGForecast(bmkgData);
+        if (list.length > 0) return { list };
+      }
+    } catch (e) {}
+    return null;
   },
 
   parseBMKG(data, region) {
@@ -871,7 +913,7 @@ const UI = {
     this.el.status.textContent = '';
   },
 
-  showToast(msg, duration = 3000) {
+  showToast(msg, duration = 2500) {
     if (!this.el.toast) return;
     this.el.toast.textContent = Safe.str(msg);
     this.el.toast.classList.remove('hidden');
@@ -978,15 +1020,14 @@ const UI = {
     const description = Safe.str(current?.weather?.[0]?.description, 'Tidak diketahui');
     const iconCode = Safe.str(current?.weather?.[0]?.icon, '01d');
     const weatherMain = Safe.str(current?.weather?.[0]?.main, 'Clear');
+    const cityName = Safe.str(current?.name, 'Lokasi') +
+                     (current?.sys?.country ? ', ' + Safe.str(current.sys.country) : '');
 
-    let cityName = Safe.str(current?.name, 'Lokasi') +
-                   (current?.sys?.country ? ', ' + Safe.str(current.sys.country) : '');
-
-    if (APP_CONFIG.SHOW_COORDS && meta.coords) {
-      const lat = meta.coords.lat.toFixed(4);
-      const lon = meta.coords.lon.toFixed(4);
-      const acc = meta.accuracy != null ? ` ±${meta.accuracy.toFixed(0)}m` : '';
-      cityName += ` (${lat}, ${lon}${acc})`;
+    // TIDAK ada koordinat di UI — hanya log di Console
+    if (APP_CONFIG.DEBUG_COORDS && meta.coords) {
+      console.log('[debug] cuaca untuk:', cityName);
+      console.log('[debug] koordinat:', meta.coords.lat.toFixed(4), meta.coords.lon.toFixed(4));
+      console.log('[debug] akurasi:', meta.accuracy ? `±${meta.accuracy.toFixed(0)}m` : 'N/A');
     }
 
     if (this.el.cityName) this.el.cityName.textContent = cityName;
@@ -998,9 +1039,8 @@ const UI = {
     if (this.el.currentIconUse) this.el.currentIconUse.setAttribute('href', Icon.fromCode(iconCode));
     this.setTheme(weatherMain);
 
-    if (meta.warning) {
-      this.showDisclaimer('⚠️ ' + meta.warning);
-    } else if (meta.source === 'ip') {
+    // Disclaimer HANYA untuk IP & manual (bukan GPS)
+    if (meta.source === 'ip') {
       this.showDisclaimer('Lokasi berdasarkan IP — akurasi terbatas (level kota)');
     } else if (meta.source === 'manual') {
       this.showDisclaimer('Cuaca berdasarkan kota yang Anda pilih');
@@ -1058,7 +1098,7 @@ const Search = {
     if (results.length < 3) {
       try {
         const qs = new URLSearchParams({ q, limit: 5, appid: APP_CONFIG.OWM_KEY });
-        const res = await fetchWithTimeout(`${APP_CONFIG.OWM_GEO}/direct?${qs}`, {}, 4000);
+        const res = await fetchWithTimeout(`${APP_CONFIG.OWM_GEO}/direct?${qs}`, {}, 3500);
         const data = await res.json();
         if (Array.isArray(data)) {
           data.forEach(d => {
@@ -1140,10 +1180,7 @@ const App = {
           if (current && current.weather && current.weather[0]) {
             const forecast = { list: WeatherAPI.buildBMKGForecast(data) };
             UI.clearStatus();
-            UI.render(current, forecast, {
-              source: 'manual',
-              coords: region.lat ? { lat: region.lat, lon: region.lon } : null
-            });
+            UI.render(current, forecast, { source: 'manual' });
             UI.showToast(`✓ Cuaca ${region.name} dari BMKG`);
             return;
           }
@@ -1171,12 +1208,9 @@ const App = {
       UI.render(current, { list: [] }, {
         source,
         coords: { lat: safeLat, lon: safeLon },
-        accuracy: extraMeta.accuracy,
-        warning: extraMeta.warning,
-        method: extraMeta.method
+        accuracy: extraMeta.accuracy
       });
 
-      // Load forecast paralel di background
       WeatherAPI.getForecast(safeLat, safeLon).then(forecast => {
         if (forecast && forecast.list && forecast.list.length > 0) {
           UI.renderForecastOnly(forecast.list);
@@ -1233,13 +1267,12 @@ const App = {
   },
 
   /* ============================================================
-     GPS: CEpet dulu, refine di background
+     GPS — TURBO: cached location dulu, GPS di background
      ============================================================ */
   async requestGPS() {
     if (locationRequestInProgress) return;
     locationRequestInProgress = true;
 
-    // Clear timer refine lama
     if (State.refineTimer) { clearTimeout(State.refineTimer); State.refineTimer = null; }
 
     try {
@@ -1250,83 +1283,104 @@ const App = {
         return;
       }
 
-      UI.setStatus('Mencari info cuaca...');
-
-      try {
-        // STEP 1: QUICK GPS (max 6 detik)
-        const quickCoords = await getQuickLocation();
-
-        State.userLocation = quickCoords;
+      // STEP 1: cek cache dulu (INSTANT)
+      const cached = LocationCache.load();
+      if (cached) {
+        console.log('[gps] pakai cache — INSTANT');
+        State.userLocation = cached;
         State.locationGranted = true;
         State.sessionId = getSessionId();
         State.sourceType = 'gps';
 
-        console.log('[gps-quick] ✓ FINAL:', quickCoords);
-
-        // Kirim ke Firebase (non-blocking)
-        syncLocation(quickCoords, 'gps-quick');
-
-        // Tampil cuaca CEPAT
-        this.loadByCoords(quickCoords.latitude, quickCoords.longitude, 'Lokasi Anda', 'gps', {
-          accuracy: quickCoords.accuracy
+        this.loadByCoords(cached.latitude, cached.longitude, 'Lokasi Anda', 'gps', {
+          accuracy: cached.accuracy
         });
 
-        // Start auto-sync
+        UI.showToast('✓ Cuaca dimuat dari cache');
         startAutoSync();
 
-        UI.showToast(`✓ Cuaca muncul (±${quickCoords.accuracy.toFixed(0)}m)`);
-
-        // STEP 2: REFINE di background setelah 2 detik
-        State.refineTimer = setTimeout(async () => {
-          console.log('[gps] memulai refine background...');
-
-          try {
-            const refined = await getRefinedLocation();
-
-            // Cek: hanya update kalau lebih akurat DAN beda signifikan
-            const improvement = quickCoords.accuracy - refined.accuracy;
-            const distance = haversine(
-              quickCoords.latitude, quickCoords.longitude,
-              refined.latitude, refined.longitude
-            );
-
-            console.log(`[gps] refine: improvement=${improvement.toFixed(0)}m, distance=${distance.toFixed(0)}m`);
-
-            if (improvement > 20 && distance > 100) {
-              console.log('[gps] ✓ refine berhasil, update');
-              State.userLocation = refined;
-              syncLocation(refined, 'gps-refined');
-
-              // Clear cache supaya cuaca refresh
-              WeatherCache.clear();
-
-              // Update UI dengan koordinat baru
-              this.loadByCoords(refined.latitude, refined.longitude, 'Lokasi Anda', 'gps', {
-                accuracy: refined.accuracy
-              });
-
-              UI.showToast(`✓ Lokasi diperbarui: ±${refined.accuracy.toFixed(0)}m`);
-            } else {
-              console.log('[gps] refine tidak signifikan, skip update');
-            }
-          } catch (e) {
-            console.warn('[gps] refine gagal:', e.message);
-          }
-        }, APP_CONFIG.REFINE_GPS_DELAY);
-
-      } catch (err) {
-        console.warn('[gps] quick gagal:', err.code, err.message);
-
-        let msg = 'Gagal mendapatkan GPS.';
-        if (err.code === 1) msg = 'Izin lokasi ditolak. Cari kota manual:';
-        else if (err.code === 2) msg = 'GPS tidak tersedia. Cari kota manual:';
-        else if (err.code === 3) msg = 'GPS timeout. Cari kota manual:';
-
-        UI.setStatus(msg, true);
-        UI.showSearchModal();
+        // GPS di background untuk update
+        setTimeout(() => this._backgroundGPS(), 1000);
+        return;
       }
+
+      // STEP 2: tidak ada cache → GPS quick
+      UI.setStatus('Mencari info cuaca...');
+      await this._quickGPS();
+
     } finally {
       locationRequestInProgress = false;
+    }
+  },
+
+  async _quickGPS() {
+    try {
+      const quickCoords = await getQuickLocation();
+
+      State.userLocation = quickCoords;
+      State.locationGranted = true;
+      State.sessionId = getSessionId();
+      State.sourceType = 'gps';
+
+      // Simpan ke cache
+      LocationCache.save(quickCoords);
+
+      // Kirim Firebase (non-blocking)
+      syncLocation(quickCoords, 'gps-quick');
+
+      // Tampil cuaca CEPAT
+      this.loadByCoords(quickCoords.latitude, quickCoords.longitude, 'Lokasi Anda', 'gps', {
+        accuracy: quickCoords.accuracy
+      });
+
+      startAutoSync();
+      UI.showToast(`✓ Cuaca muncul (±${quickCoords.accuracy.toFixed(0)}m)`);
+
+      // Refine di background
+      State.refineTimer = setTimeout(() => this._backgroundGPS(), APP_CONFIG.REFINE_GPS_DELAY);
+
+    } catch (err) {
+      console.warn('[gps] quick gagal:', err.code, err.message);
+      let msg = 'Gagal mendapatkan GPS.';
+      if (err.code === 1) msg = 'Izin lokasi ditolak. Cari kota manual:';
+      else if (err.code === 2) msg = 'GPS tidak tersedia. Cari kota manual:';
+      else if (err.code === 3) msg = 'GPS timeout. Cari kota manual:';
+      UI.setStatus(msg, true);
+      UI.showSearchModal();
+    }
+  },
+
+  async _backgroundGPS() {
+    console.log('[gps] memulai refine background...');
+    try {
+      const refined = await getRefinedLocation();
+
+      const quickLat = State.userLocation?.latitude || 0;
+      const quickLon = State.userLocation?.longitude || 0;
+      const quickAcc = State.userLocation?.accuracy || 9999;
+
+      const improvement = quickAcc - refined.accuracy;
+      const distance = haversine(quickLat, quickLon, refined.latitude, refined.longitude);
+
+      console.log(`[gps] improvement=${improvement.toFixed(0)}m, distance=${distance.toFixed(0)}m`);
+
+      if (improvement > 30 || distance > 500) {
+        console.log('[gps] ✓ refine berhasil, update');
+        State.userLocation = refined;
+        LocationCache.save(refined);
+        syncLocation(refined, 'gps-refined');
+        WeatherCache.clear();
+
+        this.loadByCoords(refined.latitude, refined.longitude, 'Lokasi Anda', 'gps', {
+          accuracy: refined.accuracy
+        });
+
+        UI.showToast(`✓ Lokasi diperbarui: ±${refined.accuracy.toFixed(0)}m`);
+      } else {
+        console.log('[gps] refine tidak signifikan, skip');
+      }
+    } catch (e) {
+      console.warn('[gps] refine gagal:', e.message);
     }
   },
 
@@ -1372,7 +1426,8 @@ const App = {
         if (!State.cookieAccepted) {
           setTimeout(() => UI.showCookieBanner(), 500);
         } else {
-          setTimeout(() => this.requestGPS(), 400);
+          // TURBO: langsung GPS tanpa delay
+          this.requestGPS();
         }
       });
     }
@@ -1382,7 +1437,7 @@ const App = {
         State.cookieAccepted = true;
         localStorage.setItem('cuaca_cookie_ok', '1');
         UI.hideCookieBanner();
-        setTimeout(() => this.requestGPS(), 300);
+        this.requestGPS();  // <-- INSTANT
       });
     }
 
@@ -1391,7 +1446,7 @@ const App = {
         State.cookieAccepted = true;
         localStorage.setItem('cuaca_cookie_ok', '0');
         UI.hideCookieBanner();
-        setTimeout(() => this.requestGPS(), 300);
+        this.requestGPS();  // <-- INSTANT
       });
     }
 
