@@ -721,19 +721,16 @@ const WeatherAPI = {
     const bmkgPromise = nearest ? this.fetchBMKGCurrent(nearest) : Promise.resolve(null);
     const owmPromise = this.fetchOWMCurrent(safeLat, safeLon).catch(() => null);
 
-    const result = await Promise.race([bmkgPromise, owmPromise]);
+    const [bmkgResult, owmResult] = await Promise.allSettled([bmkgPromise, owmPromise]);
+    const result = [bmkgResult, owmResult]
+      .filter(item => item.status === 'fulfilled')
+      .map(item => item.value)
+      .find(item => item && item.weather?.[0]);
 
-    if (result && result.weather?.[0]) {
+    if (result) {
       result._cachedAt = Date.now();
       WeatherCache.set(k, result);
       return result;
-    }
-
-    const fallback = await (result === null ? bmkgPromise : owmPromise);
-    if (fallback && fallback.weather?.[0]) {
-      fallback._cachedAt = Date.now();
-      WeatherCache.set(k, fallback);
-      return fallback;
     }
 
     throw new Error('Gagal memuat cuaca');
@@ -765,16 +762,15 @@ const WeatherAPI = {
     const bmkgPromise = nearest ? this.fetchBMKGForecast(nearest) : Promise.resolve(null);
     const owmPromise = this.fetchOWMForecast(safeLat, safeLon).catch(() => null);
 
-    const result = await Promise.race([bmkgPromise, owmPromise]);
-    if (result && result.list && result.list.length > 0) {
+    const [bmkgResult, owmResult] = await Promise.allSettled([bmkgPromise, owmPromise]);
+    const result = [bmkgResult, owmResult]
+      .filter(item => item.status === 'fulfilled')
+      .map(item => item.value)
+      .find(item => item && Array.isArray(item.list) && item.list.length > 0);
+
+    if (result) {
       WeatherCache.set(k, result);
       return result;
-    }
-
-    const fallback = await (result === null ? bmkgPromise : owmPromise);
-    if (fallback && fallback.list) {
-      WeatherCache.set(k, fallback);
-      return fallback;
     }
     return { list: [] };
   },
